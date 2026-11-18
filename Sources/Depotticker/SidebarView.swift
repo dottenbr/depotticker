@@ -209,12 +209,16 @@ struct SidebarView: View {
     private var footer: some View {
         HStack(spacing: 6) {
             Circle()
-                .fill(store.lastError == nil ? Color.up : Color.orange)
+                .fill(store.lastError == nil && store.sourceConfig.source != .none ? Color.up : Color.orange)
                 .frame(width: 6, height: 6)
-            if let error = store.lastError {
+            if store.sourceConfig.source == .none || (store.sourceConfig.source.needsKey && store.sourceConfig.key(store.sourceConfig.source) == nil) {
+                Button("No price source · Choose…") { store.showSourceSettings = true }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.orange)
+            } else if let error = store.lastError {
                 Text(error).lineLimit(1)
             } else if let date = store.lastUpdate {
-                Text("Live · updated \(date.formatted(date: .omitted, time: .standard))")
+                Text("\(MarketData.source == .yahoo ? "Live" : "Delayed") · updated \(date.formatted(date: .omitted, time: .standard))")
             } else {
                 Text("Loading quotes…")
             }

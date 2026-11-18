@@ -8,8 +8,8 @@ options:
   createIntermediateGroups: true
 settings:
   base:
-    MARKETING_VERSION: "0.2"
-    CURRENT_PROJECT_VERSION: 2
+    MARKETING_VERSION: "0.3"
+    CURRENT_PROJECT_VERSION: 3
     SWIFT_VERSION: "5.0"
     DEVELOPMENT_TEAM: 37L799SG9S
     CODE_SIGN_STYLE: Automatic
@@ -54,7 +54,9 @@ targets:
     sources:
       - path: Widget/DepotWidget.swift
       - path: Sources/Depotticker/Models.swift
-      - path: Sources/Depotticker/Yahoo.swift
+      - path: Sources/Depotticker/MarketData.swift
+      - path: Sources/Depotticker/EODHD.swift
+      - path: Sources/Depotticker/ECB.swift
       - path: Sources/Depotticker/Format.swift
       - path: Resources/PrivacyInfo.xcprivacy
     info:

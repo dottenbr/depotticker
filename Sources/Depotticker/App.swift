@@ -102,6 +102,10 @@ struct ContentView: View {
         Group {
             if isPhone { phoneLayout } else { splitLayout }
         }
+        .sheet(isPresented: $store.showSourceSettings) {
+            SourceSettingsSheet()
+                .environmentObject(store)
+        }
         .sheet(item: $store.editor) { context in
             PositionEditor(context: context)
                 .environmentObject(store)
@@ -202,6 +206,7 @@ struct ContentView: View {
                     Button("One Purchase per Position") { estimateDates(.single) }
                     Button("Yearly Purchases over the Years") { estimateDates(.yearly) }
                 }
+                Button("Price Source…", systemImage: "antenna.radiowaves.left.and.right") { store.showSourceSettings = true }
                 Divider()
                 Button("Help", systemImage: "questionmark.circle") {
                     openURL(Links.help)
@@ -292,6 +297,7 @@ enum CommandLineImport {
             exit(2)
         }
         let repository = PortfolioRepository()
+        MarketData.configure(directory: repository.directory)
         var portfolios = repository.load()
         repository.backup(portfolios)
         if let path {

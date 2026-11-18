@@ -31,6 +31,12 @@ struct OverviewView: View {
                     .foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .center)
+                if !sourceNote.isEmpty {
+                    Text(sourceNote)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                }
 
                 AdaptiveStack {
                     tile("Today", Fmt.signedMoney(totals.day), Fmt.pct(totals.dayPct), totals.day)
@@ -123,6 +129,15 @@ struct OverviewView: View {
                 }
             }
         }
+    }
+
+    /// Names the data sources, as their terms ask.
+    private var sourceNote: String {
+        var note = store.sourceConfig.source.attribution
+        if let date = store.ratesDate, !note.isEmpty {
+            note += " (reference rates of \(date.formatted(.dateTime.day().month(.abbreviated))))"
+        }
+        return note
     }
 
     /// Explains what the chart is, and on longer ranges what it is not.

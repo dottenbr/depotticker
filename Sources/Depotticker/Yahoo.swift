@@ -1,3 +1,5 @@
+// Compiled into the direct-download build only (flag DIRECT); App Store builds have no Yahoo code.
+#if DIRECT
 import Foundation
 
 enum YahooError: LocalizedError {
@@ -13,7 +15,8 @@ enum YahooError: LocalizedError {
     }
 }
 
-/// Minimal client for Yahoo Finance's public JSON endpoints.
+/// Minimal client for Yahoo Finance's undocumented JSON endpoints. Yahoo's terms do not permit automated
+/// access, so this source is never the default; it stays selectable for people who already rely on it.
 enum Yahoo {
     static let batchSize = 20
 
@@ -273,3 +276,4 @@ enum Yahoo {
         }
     }
 }
+#endif

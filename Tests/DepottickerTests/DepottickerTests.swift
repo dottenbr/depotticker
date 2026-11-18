@@ -157,3 +157,87 @@ final class MergeTests: XCTestCase {
         XCTAssertEqual(outcome.portfolios[0].positions.map(\.quantity), [10, 99])
     }
 }
+
+final class SourceTests: XCTestCase {
+    func testECBParsesDaysOldestFirst() {
+        let xml = """
+        <Cube><Cube time="2026-11-17"><Cube currency="USD" rate="1.0989"/><Cube currency="GBP" rate="0.83305"/></Cube>
+        <Cube time="2026-11-16"><Cube currency="USD" rate="1.1000"/></Cube></Cube>
+        """
+        let days = ECB.parse(xml)
+        XCTAssertEqual(days.count, 2)
+        XCTAssertEqual(days[0].rates["USD"], 1.1)
+        XCTAssertEqual(days[1].rates["GBP"], 0.83305)
+        XCTAssertLessThan(days[0].date, days[1].date)
+    }
+
+    func testEODHDSymbolMapping() {
+        XCTAssertEqual(EODHD.code(for: "AAPL"), "AAPL.US")
+        XCTAssertEqual(EODHD.code(for: "SAP.DE"), "SAP.XETRA")
+        XCTAssertEqual(EODHD.code(for: "ALV.F"), "ALV.F")
+        XCTAssertEqual(EODHD.code(for: "VOD.L"), "VOD.LSE")
+        XCTAssertEqual(EODHD.code(for: "BRK.B"), "BRK-B.US")
+        XCTAssertEqual(EODHD.code(for: "^GDAXI"), "GDAXI.INDX")
+        XCTAssertEqual(EODHD.symbol(code: "SAP", exchange: "XETRA"), "SAP.DE")
+        XCTAssertEqual(EODHD.symbol(code: "AAPL", exchange: "US"), "AAPL")
+        XCTAssertEqual(EODHD.symbol(code: "BRK-B", exchange: "US"), "BRK.B")
+    }
+
+    func testSplitAdjustmentPutsOldClosesIntoTodaysShares() {
+        func day(_ offset: Double) -> Date { Date(timeIntervalSince1970: offset * 86_400) }
+        let bars: [(date: Date, close: Double)] = [(day(1), 700), (day(2), 100), (day(3), 104), (day(4), 26)]
+        let splits: [(date: Date, ratio: Double)] = [(day(2), 7), (day(4), 4)]
+        let points = EODHD.adjust(bars, splits: splits)
+        XCTAssertEqual(points.map(\.price), [25, 25, 26, 26])
+        XCTAssertEqual(EODHD.ratio("7.000000/1.000000"), 7)
+        XCTAssertEqual(EODHD.ratio("1.000000/10.000000"), 0.1)
+    }
+
+    func testSourceConfigRoundTripIsPrivate() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        XCTAssertNil(SourceConfig.load(from: directory))
+        SourceConfig(source: .eodhd, keys: ["eodhd": "abc"]).save(to: directory)
+        let loaded = try XCTUnwrap(SourceConfig.load(from: directory))
+        XCTAssertEqual(loaded.source, .eodhd)
+        XCTAssertEqual(loaded.key(.eodhd), "abc")
+        let mode = try FileManager.default.attributesOfItem(atPath: SourceConfig.url(in: directory).path)[.posixPermissions] as? Int
+        XCTAssertEqual(mode, 0o600)
+    }
+
+    /// Compares the licensed source with the previous one on live data. Run with DEPOTTICKER_LIVE=1.
+    func testLiveEODHDMatchesYahoo() async throws {
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["DEPOTTICKER_LIVE"] == "1")
+        MarketData.config = SourceConfig(source: .eodhd, keys: ["eodhd": "demo"])
+        let quotes = try await MarketData.quotes(["AAPL", "TSLA", "VTI", "AMZN"])
+        XCTAssertEqual(quotes.count, 4)
+        let history = try await MarketData.dailyHistory("AAPL")
+        let yahoo = try await Yahoo.dailyHistory("AAPL")
+        XCTAssertEqual(history.currency, "USD")
+        func close(_ points: [ChartPoint], _ day: String) -> Double? {
+            points.first { Trade.dayFormatter.string(from: $0.date) == day }?.price
+        }
+        for day in ["1999-06-01", "2005-03-01", "2014-06-06", "2014-06-09", "2020-08-28", "2020-08-31", "2026-11-13"] {
+            let a = try XCTUnwrap(close(history.points, day), day), b = try XCTUnwrap(close(yahoo.points, day), day)
+            print("AAPL \(day): EODHD \(a)  Yahoo \(b)")
+            XCTAssertEqual(a, b, accuracy: b * 0.002, day)
+        }
+        let yahooQuote = try await Yahoo.spark(["AAPL", "TSLA"])
+        for symbol in ["AAPL", "TSLA"] {
+            print("\(symbol) quote: EODHD \(quotes[symbol]!.price) prev \(quotes[symbol]!.previousClose)  Yahoo \(yahooQuote[symbol]!.price) prev \(yahooQuote[symbol]!.previousClose)")
+        }
+        for range in [ChartRange.day, .month, .year, .max] {
+            let chart = try await MarketData.chart("AAPL", range: range)
+            print("chart \(range.rawValue): \(chart.points.count) points, first \(chart.points.first!.date) last \(chart.points.last!.date) prev \(chart.previousClose ?? -1) 52w \(chart.meta.week52Low ?? -1)-\(chart.meta.week52High ?? -1)")
+        }
+        let rates = await MarketData.rates(["USD", "GBP", "CHF"])
+        print("ECB:", rates)
+        XCTAssertEqual(rates.count, 3)
+        let fxHistory = await MarketData.rateHistory(from: "USD", to: "EUR")
+        let fx = try XCTUnwrap(fxHistory)
+        print("ECB history: \(fx.count) days from \(fx.first!.date), last \(fx.last!.price)")
+        let news = try await MarketData.news(symbol: "AAPL", name: "Apple")
+        print("news:", news.first?.title ?? "none", news.first?.publisher ?? "")
+    }
+}

@@ -9,7 +9,7 @@ enum PurchaseEstimator {
 
         func history(_ symbol: String) async -> DailyHistory? {
             if let known = histories[symbol] { return known }
-            guard let fresh = try? await Yahoo.dailyHistory(symbol) else { return nil }
+            guard let fresh = try? await MarketData.dailyHistory(symbol) else { return nil }
             histories[symbol] = fresh
             return fresh
         }
@@ -21,7 +21,7 @@ enum PurchaseEstimator {
     private static func closes(_ symbol: String, in currency: String) async -> [ChartPoint]? {
         guard let history = await cache.history(symbol) else { return nil }
         guard history.currency != currency else { return history.points }
-        guard let rates = await cache.history("\(history.currency)\(currency)=X")?.points, !rates.isEmpty else { return nil }
+        guard let rates = await MarketData.rateHistory(from: history.currency, to: currency), !rates.isEmpty else { return nil }
         var converted: [ChartPoint] = []
         var index = 0
         for point in history.points {

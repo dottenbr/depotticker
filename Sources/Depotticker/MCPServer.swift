@@ -4,7 +4,7 @@ import Foundation
 /// A small Model Context Protocol server (JSON-RPC over stdio) so AI agents can read and edit the
 /// portfolios. Start it with `Depotticker --mcp`; the running app picks up changes within seconds.
 enum MCPServer {
-    static let version = "0.2"
+    static let version = "0.3"
 
     static func runBlocking() -> Never {
         Task.detached {
@@ -38,7 +38,7 @@ enum MCPServer {
                 "serverInfo": ["name": "depotticker", "version": version],
                 "instructions": "Read and edit the user's stock portfolios in the Depotticker app. "
                     + "Costs are average purchase prices per share in each position's own currency (EUR unless stated). "
-                    + "The same symbol can be held in several portfolios. Record purchases and sales with add_transaction. Symbols are Yahoo Finance symbols "
+                    + "The same symbol can be held in several portfolios. Record purchases and sales with add_transaction. Symbols are a US ticker or ticker plus exchange suffix "
                     + "(for example AAPL, SAP.DE); use search_symbols when unsure.",
             ])
         case "ping":
@@ -74,7 +74,7 @@ enum MCPServer {
         [
             tool("list_portfolios", "List all portfolios with their positions (symbol, name, quantity, average cost, cost currency, recorded transactions)."),
             tool("get_valuation", "Current value of every position and portfolio in EUR with live prices, today's change and total gain."),
-            tool("search_symbols", "Find the Yahoo Finance symbol for a company, fund or ISIN.",
+            tool("search_symbols", "Find the symbol for a company, fund or ISIN at the user's price source.",
                  ["query": string], required: ["query"]),
             tool("create_portfolio", "Create a new, empty portfolio.", ["name": string], required: ["name"]),
             tool("add_position", "Add a position to a portfolio.",
@@ -136,6 +136,7 @@ enum MCPServer {
 
     private static func call(_ name: String, _ arguments: [String: Any]) async throws -> String {
         let repository = PortfolioRepository()
+        MarketData.configure(directory: repository.directory)
         var portfolios = repository.load()
 
         func text(_ key: String) throws -> String {
@@ -177,7 +178,7 @@ enum MCPServer {
             return json(try await valuation(portfolios, repository: repository))
 
         case "search_symbols":
-            let found = try await Yahoo.search(try text("query"))
+            let found = try await MarketData.search(try text("query"))
             return json(found.map { ["symbol": $0.symbol, "name": $0.name, "exchange": $0.exchange, "type": $0.type] })
 
         case "create_portfolio":
@@ -200,7 +201,7 @@ enum MCPServer {
             }
             let currency = try currencyArgument() ?? "EUR"
             // Looking the symbol up also rejects symbols that do not exist.
-            guard let meta = try? await Yahoo.chart(symbol, range: .day).meta else {
+            guard let meta = try? await MarketData.chart(symbol, range: .day).meta else {
                 throw ToolError(message: "“\(symbol)” is not a known symbol. Use search_symbols to find it.")
             }
             let display = (arguments["name"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? meta.name
@@ -260,7 +261,7 @@ enum MCPServer {
                 portfolios[index].positions[existing] = position
             } else {
                 guard kind == .buy else { throw ToolError(message: "\(portfolios[index].name) has no position in \(symbol) to sell.") }
-                guard let meta = try? await Yahoo.chart(symbol, range: .day).meta else {
+                guard let meta = try? await MarketData.chart(symbol, range: .day).meta else {
                     throw ToolError(message: "“\(symbol)” is not a known symbol. Use search_symbols to find it.")
                 }
                 portfolios[index].positions.append(Position(symbol: symbol, name: meta.name, quantity: 0, unitCost: 0,
@@ -289,21 +290,16 @@ enum MCPServer {
         let symbols = portfolios.flatMap(\.positions).map(\.symbol).filter { seen.insert($0).inserted }
         var meta = repository.loadMeta()
         for symbol in symbols where meta[symbol] == nil {
-            if let fresh = try? await Yahoo.chart(symbol, range: .day).meta { meta[symbol] = fresh }
+            if let fresh = try? await MarketData.chart(symbol, range: .day).meta { meta[symbol] = fresh }
         }
         let currencies = Set(symbols.compactMap { meta[$0]?.currency })
             .union(portfolios.flatMap(\.positions).map(\.currency)).subtracting(["EUR"])
-        let all = symbols + currencies.map { "\($0)EUR=X" }
-        var quotes: [String: LiveQuote] = [:]
-        for start in stride(from: 0, to: all.count, by: Yahoo.batchSize) {
-            let batch = Array(all[start..<min(start + Yahoo.batchSize, all.count)])
-            quotes.merge(try await Yahoo.spark(batch)) { _, new in new }
-        }
+        let quotes = try await MarketData.quotes(symbols)
         var fx: [String: Double] = ["EUR": 1]
         var fxPrevious: [String: Double] = ["EUR": 1]
-        for currency in currencies {
-            fx[currency] = quotes["\(currency)EUR=X"]?.price
-            fxPrevious[currency] = quotes["\(currency)EUR=X"]?.previousClose
+        for (currency, rate) in await MarketData.rates(currencies) {
+            fx[currency] = rate.now
+            fxPrevious[currency] = rate.previous
         }
 
         var total = 0.0, totalCost = 0.0, totalGain = 0.0, totalDay = 0.0

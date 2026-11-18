@@ -77,27 +77,14 @@ enum WidgetData {
         guard !symbols.isEmpty else { return cached }
         let currencies = Set(symbols.compactMap { meta[$0]?.currency })
             .union(file.portfolios.flatMap(\.positions).map(\.currency)).subtracting(["EUR"])
-        let all = symbols + currencies.map { "\($0)EUR=X" }
-        let batches = stride(from: 0, to: all.count, by: Yahoo.batchSize).map {
-            Array(all[$0..<min($0 + Yahoo.batchSize, all.count)])
-        }
-
-        var quotes: [String: LiveQuote] = [:]
-        await withTaskGroup(of: [String: LiveQuote].self) { group in
-            for batch in batches {
-                group.addTask { (try? await Yahoo.spark(batch)) ?? [:] }
-            }
-            for await result in group { quotes.merge(result) { _, new in new } }
-        }
-        guard !quotes.isEmpty else { return cached }
+        MarketData.configure(directory: directory)
+        guard let quotes = try? await MarketData.quotes(symbols), !quotes.isEmpty else { return cached }
 
         var fx: [String: Double] = ["EUR": 1]
         var fxPrevious: [String: Double] = ["EUR": 1]
-        for currency in currencies {
-            if let quote = quotes["\(currency)EUR=X"] {
-                fx[currency] = quote.price
-                fxPrevious[currency] = quote.previousClose
-            }
+        for (currency, rate) in await MarketData.rates(currencies) {
+            fx[currency] = rate.now
+            fxPrevious[currency] = rate.previous
         }
 
         var entry = DepotEntry(date: Date(), value: 0, cost: 0, gain: 0, day: 0, portfolios: [], movers: [])

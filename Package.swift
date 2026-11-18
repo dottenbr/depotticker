@@ -14,6 +14,7 @@ let package = Package(
             name: "Depotticker",
             dependencies: [.product(name: "Sparkle", package: "Sparkle")],
             path: "Sources/Depotticker",
+            swiftSettings: [.define("DIRECT")],
             linkerSettings: [.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])]
         ),
         .testTarget(name: "DepottickerTests", dependencies: ["Depotticker"], path: "Tests/DepottickerTests"),

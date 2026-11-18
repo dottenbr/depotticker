@@ -16,7 +16,7 @@ enum EditorContext: Identifiable {
 
 @MainActor
 final class Store: ObservableObject {
-    static let refreshInterval: Duration = .seconds(20)
+    static var refreshInterval: Duration { MarketData.source.refreshInterval }
 
     @Published var portfolios: [Portfolio] = []
     @Published var quotes: [String: LiveQuote] = [:]
@@ -30,6 +30,8 @@ final class Store: ObservableObject {
     @Published var editor: EditorContext?
     /// Pushes the overview page on iPhone, where it is not permanently visible.
     @Published var showOverview = false
+    /// Presents the price-source sheet. `--source-settings` opens it at launch (used when checking layouts).
+    @Published var showSourceSettings = CommandLine.arguments.contains("--source-settings")
     @Published var lastUpdate: Date?
     @Published var lastError: String?
     @Published var menuBarMode: MenuBarMode {
@@ -47,6 +49,10 @@ final class Store: ObservableObject {
         }
     }
     @Published private(set) var sharingDetected = false
+    /// The chosen price source and API keys (see `MarketData`).
+    @Published private(set) var sourceConfig = SourceConfig()
+    /// Day of the exchange rates in use, when they are the ECB's daily reference rates.
+    @Published private(set) var ratesDate: Date?
 
     /// True when amounts should currently be masked (menu bar on the Mac, totals on iPhone and iPad).
     var amountsHidden: Bool { autoHideAmounts && sharingDetected }
@@ -69,6 +75,15 @@ final class Store: ObservableObject {
         autoHideAmounts = defaults.object(forKey: "autoHideAmounts") as? Bool ?? true
         excludeFromCapture = defaults.object(forKey: "excludeFromCapture") as? Bool ?? true
         portfolios = repository.load()
+        if !MarketData.configure(directory: repository.directory), ProcessInfo.processInfo.environment["DEPOTTICKER_SOURCE"] == nil {
+            // First start of a version with selectable sources: installs that already hold positions keep
+            // the source they have been using; new installs start without one.
+            var initial = SourceConfig()
+            if !portfolios.isEmpty, DataSource.available.contains(.yahoo) { initial.source = .yahoo }
+            initial.save(to: repository.directory)
+            MarketData.config = initial
+        }
+        sourceConfig = MarketData.config
         loadSavedHistories()
         loadedStamp = repository.stamp()
         meta = repository.loadMeta()
@@ -155,6 +170,24 @@ final class Store: ObservableObject {
         repository.saveMeta(meta)
     }
 
+    // MARK: Price source
+
+    /// Switches the price source or stores an API key, then reloads everything from the new source.
+    func setSource(_ source: DataSource, key: String? = nil) {
+        var config = sourceConfig
+        config.source = source
+        if let key { config.keys[source.rawValue] = key.trimmingCharacters(in: .whitespacesAndNewlines) }
+        guard config != sourceConfig else { return }
+        config.save(to: repository.directory)
+        MarketData.config = config
+        sourceConfig = config
+        quotes.removeAll()
+        lastError = nil
+        WidgetCenter.shared.reloadAllTimelines()
+        invalidateHistories()
+        Task { await refresh() }
+    }
+
     // MARK: Import and export
 
     func exportCSV() -> String {
@@ -203,40 +236,25 @@ final class Store: ObservableObject {
     func refresh() async {
         reloadIfChangedElsewhere()
         let symbols = allSymbols
-        guard !symbols.isEmpty else { return }
+        guard !symbols.isEmpty else {
+            lastError = MarketData.source == .none ? MarketDataError.noSource.localizedDescription : nil
+            return
+        }
         await loadMissingMeta(for: symbols)
 
         // Listing currencies plus the currencies positions were bought in.
         let currencies = Set(symbols.compactMap { meta[$0]?.currency })
             .union(portfolios.flatMap(\.positions).map(\.currency)).subtracting(["EUR"])
-        let fxSymbols = currencies.map { "\($0)EUR=X" }
-        let all = symbols + fxSymbols
-        let batches = stride(from: 0, to: all.count, by: Yahoo.batchSize).map {
-            Array(all[$0..<min($0 + Yahoo.batchSize, all.count)])
-        }
-
+        async let rates = MarketData.rates(currencies)
         var merged: [String: LiveQuote] = [:]
         var failure: String?
-        await withTaskGroup(of: Result<[String: LiveQuote], Error>.self) { group in
-            for batch in batches {
-                group.addTask {
-                    do { return .success(try await Yahoo.spark(batch)) } catch { return .failure(error) }
-                }
-            }
-            for await result in group {
-                switch result {
-                case .success(let quotes): merged.merge(quotes) { _, new in new }
-                case .failure(let error): failure = error.localizedDescription
-                }
-            }
-        }
+        do { merged = try await MarketData.quotes(symbols) } catch { failure = error.localizedDescription }
 
-        for currency in currencies {
-            if let quote = merged["\(currency)EUR=X"] {
-                fx[currency] = quote.price
-                fxPrevious[currency] = quote.previousClose
-            }
+        for (currency, rate) in await rates {
+            fx[currency] = rate.now
+            fxPrevious[currency] = rate.previous
         }
+        ratesDate = MarketData.source == .yahoo ? nil : await ECB.latestDate()
         for symbol in symbols {
             if let quote = merged[symbol] { quotes[symbol] = quote }
         }
@@ -252,7 +270,7 @@ final class Store: ObservableObject {
         await withTaskGroup(of: SymbolMeta?.self) { group in
             func addNext() {
                 guard let symbol = iterator.next() else { return }
-                group.addTask { try? await Yahoo.chart(symbol, range: .day).meta }
+                group.addTask { try? await MarketData.chart(symbol, range: .day).meta }
             }
             for _ in 0..<4 { addNext() }
             for await result in group {
@@ -275,7 +293,7 @@ final class Store: ObservableObject {
     /// How long a downloaded range stays fresh: intraday ranges move, daily ones barely do.
     private func lifetime(_ range: ChartRange) -> TimeInterval {
         switch range {
-        case .day: return 100
+        case .day: return MarketData.source.intradayLifetime
         case .week: return 600
         case .month: return 1_800
         default: return 6 * 3_600
@@ -295,16 +313,7 @@ final class Store: ObservableObject {
         defer { historyInFlight.remove(range) }
         if fx.count < 2 || meta.isEmpty { await refresh() }
 
-        let batches = stride(from: 0, to: symbols.count, by: Yahoo.batchSize).map {
-            Array(symbols[$0..<min($0 + Yahoo.batchSize, symbols.count)])
-        }
-        var series: [String: PriceSeries] = [:]
-        await withTaskGroup(of: [String: PriceSeries].self) { group in
-            for batch in batches {
-                group.addTask { (try? await Yahoo.series(batch, range: range)) ?? [:] }
-            }
-            for await result in group { series.merge(result) { _, new in new } }
-        }
+        let series = await MarketData.series(symbols, range: range)
         guard series.count * 2 >= symbols.count else { return }
         seriesCache[range] = (Date(), series)
         recomputeHistories(for: range)
@@ -361,6 +370,11 @@ final class Store: ObservableObject {
         var merged = fresh
         if let old = meta[fresh.symbol] {
             merged.open = fresh.open ?? old.open
+            // A source that could not name the listing must not wipe a name already known.
+            if fresh.name == fresh.symbol {
+                merged.name = old.name
+                if !old.exchange.isEmpty { merged.exchange = old.exchange }
+            }
             merged.previousClose = fresh.previousClose ?? old.previousClose
         }
         guard meta[fresh.symbol] != merged else { return }
@@ -449,7 +463,9 @@ final class Store: ObservableObject {
                 let lot = Holding.Lot(portfolioID: portfolio.id, portfolioName: portfolio.name, position: position)
                 if bySymbol[position.symbol] == nil {
                     order.append(position.symbol)
-                    let name = meta[position.symbol]?.name ?? position.name
+                    // A source that could not name the listing reports the symbol; the name on record is better.
+                    let known = meta[position.symbol]?.name
+                    let name = known.flatMap { $0 == position.symbol ? nil : $0 } ?? position.name
                     bySymbol[position.symbol] = Holding(symbol: position.symbol, name: name, lots: [lot])
                 } else {
                     bySymbol[position.symbol]?.lots.append(lot)

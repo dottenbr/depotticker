@@ -20,6 +20,7 @@ struct PositionEditor: View {
     @State private var query = ""
     @State private var results: [SearchResult] = []
     @State private var searching = false
+    @State private var searchError: String?
     @State private var confirmDelete = false
 
     private var existing: (portfolioID: UUID, position: Position)? {
@@ -236,6 +237,12 @@ struct PositionEditor: View {
                 }
             }
 
+            if let searchError, results.isEmpty {
+                Label(searchError, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+
             if !results.isEmpty {
                 ScrollView {
                     VStack(spacing: 0) {
@@ -296,8 +303,15 @@ struct PositionEditor: View {
         guard !Task.isCancelled else { return }
         searching = true
         defer { searching = false }
-        if let found = try? await Yahoo.search(text), !Task.isCancelled {
+        do {
+            let found = try await MarketData.search(text)
+            guard !Task.isCancelled else { return }
             results = found
+            searchError = nil
+        } catch {
+            guard !Task.isCancelled else { return }
+            results = []
+            searchError = error.localizedDescription
         }
     }
 

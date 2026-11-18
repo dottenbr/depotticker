@@ -12,10 +12,21 @@
 
 <h2 id="start">Getting started</h2>
 <ol>
-<li>Open Depotticker. Choose the <strong>…</strong> button next to the portfolio chips and pick <strong>New Portfolio…</strong>, for example one per broker.</li>
+<li>Open Depotticker and <a href="#source">choose a price source</a>.</li>
+<li>Choose the <strong>…</strong> button next to the portfolio chips and pick <strong>New Portfolio…</strong>, for example one per broker.</li>
 <li>Click <strong>+</strong> (or press <code>⌘N</code>), search for a share or fund by name, symbol or ISIN, and enter how many you hold and your average purchase price per share in euros.</li>
 <li>Have many positions? Use <a href="#csv">import from CSV</a> instead.</li>
 </ol>
+
+<h2 id="source">Price source</h2>
+<p>Share prices are licensed data, so Depotticker has no built-in feed. You choose where prices come from under <em>Settings › Price source</em> on the Mac, or in the import and export menu under <em>Price Source…</em> on any device.</p>
+<ul>
+<li><strong>EODHD (your own API key):</strong> a licensed data vendor covering Xetra and other European exchanges, funds and US shares. Sign up at <a href="https://eodhd.com/pricing">eodhd.com</a>, copy your API key and paste it into the app. The app then asks EODHD directly from your device. Prices are delayed by about 15 minutes and refresh every five minutes. The free key allows 20 requests a day, which is only enough to try the app with a few shares; a real portfolio needs one of EODHD's paid personal plans. Key figures such as P/E are not included.</li>
+<li><strong>Yahoo Finance (unofficial):</strong> only in the Mac version downloaded from this website. It uses Yahoo's undocumented web endpoints. Yahoo's terms do not permit automated access, so this source is not licensed and can stop working at any time. If you used Depotticker before version 0.3 it stays selected until you switch.</li>
+<li><strong>None:</strong> your positions and costs are kept, but no prices or values are shown.</li>
+</ul>
+<p>With a licensed source, exchange rates are the European Central Bank's euro reference rates. They are set once per working day at about 16:00 CET, so euro values of foreign shares can differ slightly from a broker that converts at the live rate. The overview names the sources and the day of the rates in use.</p>
+<p>The key is stored on each device separately; enter it once on your Mac, iPhone and iPad.</p>
 
 <h2 id="positions">Portfolios and positions</h2>
 <ul>
@@ -60,7 +71,7 @@
 <li><strong>Estimating purchase dates:</strong> most brokers only report an average price. <em>Estimate Missing Purchase Dates</em> (same menu, also offered when importing) gives each purchase without a date the most recent day the share closed at your price, converted into the currency you paid in. For Raymond James the “Time Held” column narrows the search. Choose <em>Yearly Purchases over the Years</em> if you bought repeatedly: the app then assumes equal purchases once a year, going back as few years as it takes for the market prices to explain your average. These entries are marked as estimated and change no quantity or cost. It is a guess: a position built up over several purchases was partly bought earlier, so correct the entries where you know the real dates.</li>
 <li><strong>Purchases and sales:</strong> edit a position (pencil on the share's page) to record a purchase or sale with date and price. Shares and average cost are then calculated from these entries (a sale leaves the average cost of the remaining shares unchanged), and the realised gain is shown.</li>
 </ul>
-<p>Symbols are Yahoo Finance symbols, such as <code>AAPL</code>, <code>SAP.DE</code> or <code>VWCE.DE</code>. Both comma and semicolon separated files are understood, as are numbers written as <code>1.234,56</code> or <code>1,234.56</code>.</p>
+<p>Symbols are written as US ticker or ticker plus exchange suffix, such as <code>AAPL</code>, <code>SAP.DE</code> (Xetra), <code>ALV.F</code> (Frankfurt) or <code>VOD.L</code> (London); the search in the app shows the exact symbol. Both comma and semicolon separated files are understood, as are numbers written as <code>1.234,56</code> or <code>1,234.56</code>.</p>
 
 <h2 id="menubar">Menu bar (Mac)</h2>
 <p>The menu bar item shows today's change in percent by default. In <em>Settings › Menu bar</em> you can switch to an icon only, the change in euros, both, or the total value. Click the item for a summary of each portfolio and the day's biggest moves.</p>
@@ -86,7 +97,7 @@
 <table>
 <tr><th>Tool</th><th>What it does</th></tr>
 <tr><td><code>list_portfolios</code></td><td>Portfolios with their positions, quantities and average cost.</td></tr>
-<tr><td><code>get_valuation</code></td><td>Live value, today's change and gain per position and in total.</td></tr>
+<tr><td><code>get_valuation</code></td><td>Current value, today's change and gain per position and in total.</td></tr>
 <tr><td><code>search_symbols</code></td><td>Finds the symbol for a company, fund or ISIN.</td></tr>
 <tr><td><code>create_portfolio</code></td><td>Adds an empty portfolio.</td></tr>
 <tr><td><code>add_transaction</code></td><td>Record a purchase or sale with date and price.</td></tr>
@@ -98,7 +109,8 @@
 
 <h2 id="trouble">Troubleshooting</h2>
 <ul>
-<li><strong>A position shows “—”:</strong> the symbol has no price yet. Check the symbol by searching for it again.</li>
+<li><strong>Nothing shows a price:</strong> no price source is selected, or the API key is missing or wrong. See <a href="#source">price source</a>; the status line at the bottom of the sidebar names the problem.</li>
+<li><strong>A position shows “—”:</strong> the symbol has no price at your price source. Check the symbol by searching for it again.</li>
 <li><strong>Prices do not update:</strong> the status line at the bottom of the sidebar shows the last update or an error. The data source occasionally limits requests; the app retries by itself.</li>
 <li><strong>Values differ from my broker:</strong> see <a href="#numbers">how the numbers are calculated</a>.</li>
 </ul>

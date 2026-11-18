@@ -1,6 +1,6 @@
 # Depotticker
 
-A clean portfolio tracker for Mac, iPhone and iPad: live prices, real gains and losses in euros, readable charts, widgets, a menu bar item, CSV import and export, and a built-in MCP server for AI agents.
+A clean portfolio tracker for Mac, iPhone and iPad: current prices, real gains and losses in euros, readable charts, widgets, a menu bar item, CSV import and export, and a built-in MCP server for AI agents.
 
 Website and help: https://depotticker.com/
 
@@ -31,7 +31,14 @@ The direct build needs the full Xcode (the Command Line Tools alone lack the Swi
 
 ## Data source
 
-Prices, charts, key figures and news come from Yahoo Finance's public web endpoints. They are unofficial, may be delayed and can change without notice. Depotticker is not investment advice.
+Exchange prices are licensed data, so Depotticker ships without a built-in price feed. Each user picks a source in the app (Settings › Price source):
+
+- **EODHD** with the user's own API key. The app talks to EODHD directly from the user's device; prices are delayed by about 15 minutes, and daily closes are split-adjusted in the app. A portfolio needs one of EODHD's paid personal plans.
+- **Yahoo Finance (unofficial)**, in the direct-download build only (compile flag `DIRECT`). Yahoo's terms do not permit automated access, so it is never the default; installs that already used it keep it until they switch. The App Store builds contain no Yahoo code.
+
+Exchange rates with a licensed source are the European Central Bank's euro reference rates (one fixing per working day, free to reuse with the source named).
+
+Depotticker is not investment advice.
 
 ## Website
 

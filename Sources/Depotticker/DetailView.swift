@@ -57,8 +57,8 @@ struct DetailView: View {
             .frame(maxWidth: .infinity)
         }
         .task {
-            async let figures = try? Yahoo.fundamentals(symbol)
-            async let headlines = try? Yahoo.news(symbol: symbol, name: holding.name)
+            async let figures = try? MarketData.fundamentals(symbol)
+            async let headlines = try? MarketData.news(symbol: symbol, name: holding.name)
             fundamentals = await figures
             news = await headlines ?? []
         }
@@ -67,14 +67,14 @@ struct DetailView: View {
             dragStart = nil
             while !Task.isCancelled {
                 await load()
-                try? await Task.sleep(for: .seconds(range == .day ? 30 : 300))
+                try? await Task.sleep(for: range == .day ? max(.seconds(30), MarketData.source.refreshInterval) : .seconds(300))
             }
         }
     }
 
     private func load() async {
         do {
-            let fresh = try await Yahoo.chart(symbol, range: range)
+            let fresh = try await MarketData.chart(symbol, range: range)
             data = fresh
             loadError = nil
             store.update(meta: fresh.meta)

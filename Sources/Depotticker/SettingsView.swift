@@ -17,6 +17,7 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            SourceSettingsSection()
             Section("Menu bar") {
                 Picker("Show", selection: $store.menuBarMode) {
                     ForEach(MenuBarMode.allCases) { Text($0.title).tag($0) }

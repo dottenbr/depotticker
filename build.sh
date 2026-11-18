@@ -47,9 +47,10 @@ sed "s|__SPARKLE_PUBLIC_KEY__|$($sparkle/generate_keys -p)|" Support/Info.plist 
 # Widget extension (small, medium and large desktop widgets).
 appex="$app/Contents/PlugIns/DepottickerWidget.appex"
 mkdir -p "$appex/Contents/MacOS"
-swiftc -O -target arm64-apple-macos26.0 -swift-version 5 -parse-as-library -application-extension \
+swiftc -O -D DIRECT -target arm64-apple-macos26.0 -swift-version 5 -parse-as-library -application-extension \
   -module-name DepottickerWidget -Xlinker -e -Xlinker _NSExtensionMain \
   Sources/Depotticker/Models.swift Sources/Depotticker/Yahoo.swift Sources/Depotticker/Format.swift \
+  Sources/Depotticker/MarketData.swift Sources/Depotticker/EODHD.swift Sources/Depotticker/ECB.swift \
   Widget/DepotWidget.swift -o "$appex/Contents/MacOS/DepottickerWidget"
 cp Widget/Info.plist "$appex/Contents/Info.plist"
 
