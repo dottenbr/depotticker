@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Depotticker Help</title>
+<meta name="description" content="How to use Depotticker: portfolios, charts, import and export, widgets, privacy, iCloud sync and AI agents.">
+<link rel="icon" href="../img/icon.png">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<div class="wrap">
+<header class="site">
+  <a class="brand" href="../index.html"><img src="../img/icon.png" alt="">Depotticker</a>
+  <nav><a href="../help/">Help</a><a href="../privacy.html">Privacy</a><a href="https://github.com/dottenbr/depotticker">GitHub</a></nav>
+</header>
+<article>
+<h1>Depotticker Help</h1>
+<p>Everything the app can do, in the order you will probably need it.</p>
+<ul class="toc">
+<li><a href="#start">Getting started</a></li><li><a href="#positions">Portfolios and positions</a></li>
+<li><a href="#numbers">How the numbers are calculated</a></li><li><a href="#charts">Charts</a></li>
+<li><a href="#overview">The overview page</a></li><li><a href="#csv">Import and export</a></li>
+<li><a href="#menubar">Menu bar</a></li><li><a href="#widgets">Widgets</a></li>
+<li><a href="#privacy">Privacy and screen sharing</a></li><li><a href="#icloud">iCloud sync</a></li>
+<li><a href="#mcp">AI agents (MCP)</a></li><li><a href="#updates">Updates</a></li>
+<li><a href="#trouble">Troubleshooting</a></li>
+</ul>
+
+<h2 id="start">Getting started</h2>
+<ol>
+<li>Open Depotticker. Choose the <strong>…</strong> button next to the portfolio chips and pick <strong>New Portfolio…</strong>, for example one per broker.</li>
+<li>Click <strong>+</strong> (or press <code>⌘N</code>), search for a share or fund by name, symbol or ISIN, and enter how many you hold and your average purchase price per share in euros.</li>
+<li>Have many positions? Use <a href="#csv">import from CSV</a> instead.</li>
+</ol>
+
+<h2 id="positions">Portfolios and positions</h2>
+<ul>
+<li><strong>Switch portfolio:</strong> use the chips at the top of the sidebar. <em>All</em> combines everything; a share held in several portfolios appears once with the combined quantity.</li>
+<li><strong>Edit or remove a position:</strong> right-click it (or swipe left on it with two fingers), or use the pencil next to the broker on the stock page.</li>
+<li><strong>Rename or delete a portfolio:</strong> select it, then use the <strong>…</strong> button.</li>
+<li><strong>Sort:</strong> the button at the bottom right of the sidebar sorts by position value (the default), name, today's change or total gain.</li>
+<li><strong>Coloured pill:</strong> click it to switch between today's change in %, today's change in €, total gain in % and total gain in €.</li>
+</ul>
+
+<h2 id="numbers">How the numbers are calculated</h2>
+<table>
+<tr><th>Figure</th><th>Meaning</th></tr>
+<tr><td>Value</td><td>Quantity × latest regular-session price, converted to euros at the current exchange rate.</td></tr>
+<tr><td>Today</td><td>Value now minus value at the previous close, each at its own exchange rate, so the day's currency move is included.</td></tr>
+<tr><td>Total gain</td><td>Value minus what you paid (quantity × your average cost in euros).</td></tr>
+</table>
+<p>Prices are those of the listing you added, for example the US listing for <code>AAPL</code>. After the market closes the official closing price is used. Pre-market and after-hours prices are shown on the stock page for information but never enter your values. Your broker may value the same share at the price of a different exchange, so small differences are normal.</p>
+
+<h2 id="charts">Charts</h2>
+<ul>
+<li><strong>Period:</strong> click a period, or pinch on the trackpad or screen to move to a shorter or longer one.</li>
+<li><strong>Inspect:</strong> move the pointer over the chart to see the price at that moment.</li>
+<li><strong>Measure:</strong> drag across the chart to see the change between two points.</li>
+<li><strong>Indicators:</strong> the <em>Indicators</em> button turns trading volume, a 20-point moving average, the period's high and low, your average cost and trading-day separators on or off.</li>
+<li><strong>Market status:</strong> the badge next to the exchange shows whether the market is open and when it opens or closes.</li>
+</ul>
+
+<h2 id="overview">The overview page</h2>
+<p>Click the total at the top of the sidebar (or press <code>⌘0</code>) to see the portfolio as a whole: a value chart, today's change, total gain, the split across portfolios, the largest positions as a ring chart, and today's biggest gainers and losers.</p>
+<p>The value chart shows how <em>today's holdings</em> would have developed over the chosen period at today's exchange rates. It is not a record of your actual purchases, because the app does not know when you bought.</p>
+
+<h2 id="csv">Import and export</h2>
+<p>Use the import and export button in the toolbar.</p>
+<ul>
+<li><strong>Export as CSV…</strong> saves all positions with current price, value and gain. The file opens in Excel and Numbers.</li>
+<li><strong>Open Import Template</strong> opens an example file you can fill in.</li>
+<li><strong>Import from CSV…</strong> reads a file with these columns: <code>Portfolio</code>, <code>Symbol</code>, <code>Name</code>, <code>Quantity</code>, <code>Average cost (EUR)</code>. Only Symbol and Quantity are required. You then choose whether to add the positions to what you have or replace everything. A backup of the previous state is kept in the app's data folder.</li>
+</ul>
+<p>Symbols are Yahoo Finance symbols, such as <code>AAPL</code>, <code>SAP.DE</code> or <code>VWCE.DE</code>. Both comma and semicolon separated files are understood, as are numbers written as <code>1.234,56</code> or <code>1,234.56</code>.</p>
+
+<h2 id="menubar">Menu bar (Mac)</h2>
+<p>The menu bar item shows today's change in percent by default. In <em>Settings › Menu bar</em> you can switch to an icon only, the change in euros, both, or the total value. Click the item for a summary of each portfolio and the day's biggest moves.</p>
+
+<h2 id="widgets">Widgets</h2>
+<p>On the Mac, right-click the desktop, choose <em>Edit Widgets</em> and search for Depotticker. On iPhone and iPad, touch and hold the Home Screen and tap <em>Edit</em>. There are three sizes: small (value and today's change), medium (plus each portfolio) and large (plus the biggest moves). The system decides how often widgets refresh, usually every 15 to 30 minutes.</p>
+
+<h2 id="privacy">Privacy and screen sharing</h2>
+<ul>
+<li><strong>Hide amounts automatically:</strong> while a call is in progress, the Mac is being viewed through Screen Sharing or the display is mirrored, the menu bar shows only percentages. On iPhone and iPad the totals are hidden while the screen is recorded or mirrored.</li>
+<li><strong>Keep windows out of recordings:</strong> Depotticker asks macOS to leave its windows out of shared and recorded screens. Some capture tools ignore this request, so treat it as an extra layer rather than a guarantee.</li>
+</ul>
+<p>Both options are in <em>Settings › Privacy</em>.</p>
+
+<h2 id="icloud">iCloud sync</h2>
+<p>In the App Store versions, your portfolios are stored in your Apple Account and appear automatically on your Mac, iPhone and iPad. Nothing is saved as a file in iCloud Drive, and there is nothing to set up beyond being signed in to iCloud. The direct-download Mac version keeps its data on that Mac.</p>
+
+<h2 id="mcp">AI agents (MCP)</h2>
+<p>The Mac app includes a Model Context Protocol server, so an AI assistant can read your portfolio and change positions when you ask it to. It runs only while the assistant uses it and talks to nothing but the assistant that started it.</p>
+<p>For Claude Code:</p>
+<pre><code>claude mcp add depotticker -- /Applications/Depotticker.app/Contents/MacOS/Depotticker --mcp</code></pre>
+<p>For other assistants, add a server with the command <code>/Applications/Depotticker.app/Contents/MacOS/Depotticker</code> and the argument <code>--mcp</code>.</p>
+<table>
+<tr><th>Tool</th><th>What it does</th></tr>
+<tr><td><code>list_portfolios</code></td><td>Portfolios with their positions, quantities and average cost.</td></tr>
+<tr><td><code>get_valuation</code></td><td>Live value, today's change and gain per position and in total.</td></tr>
+<tr><td><code>search_symbols</code></td><td>Finds the symbol for a company, fund or ISIN.</td></tr>
+<tr><td><code>create_portfolio</code></td><td>Adds an empty portfolio.</td></tr>
+<tr><td><code>add_position</code>, <code>update_position</code>, <code>remove_position</code></td><td>Change your positions. The open app shows the change within about 20 seconds.</td></tr>
+</table>
+
+<h2 id="updates">Updates</h2>
+<p>The direct-download Mac version checks for updates automatically and offers to install them. Choose <em>Depotticker › Check for Updates…</em> to check now. App Store versions are updated by the App Store.</p>
+
+<h2 id="trouble">Troubleshooting</h2>
+<ul>
+<li><strong>A position shows “—”:</strong> the symbol has no price yet. Check the symbol by searching for it again.</li>
+<li><strong>Prices do not update:</strong> the status line at the bottom of the sidebar shows the last update or an error. The data source occasionally limits requests; the app retries by itself.</li>
+<li><strong>Values differ from my broker:</strong> see <a href="#numbers">how the numbers are calculated</a>.</li>
+</ul>
+</article>
+
+<footer class="site">
+  <a href="../help/">Help</a><a href="../privacy.html">Privacy</a><a href="https://github.com/dottenbr/depotticker/releases">Releases</a>
+  <p>Depotticker is a personal portfolio tracker. It is not investment advice. Prices come from a third-party source, may be delayed and can be wrong; always check with your broker before you act.</p>
+</footer>
+</div>
+</body>
+</html>

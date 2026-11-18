@@ -1,0 +1,7 @@
+.build/
+build/
+*.icns
+Support/AppIcon.iconset/
+*.xcodeproj
+Config/*-Info.plist
+DerivedData/

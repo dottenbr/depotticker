@@ -1,0 +1,83 @@
+# Xcode project for the App Store builds (Mac, iPhone, iPad). Generate it with `xcodegen`.
+# The direct-download Mac build with auto-update is made by build.sh instead.
+name: Depotticker
+options:
+  deploymentTarget:
+    macOS: "26.0"
+    iOS: "26.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    MARKETING_VERSION: "0.1"
+    CURRENT_PROJECT_VERSION: 1
+    SWIFT_VERSION: "5.0"
+    DEVELOPMENT_TEAM: 37L799SG9S
+    CODE_SIGN_STYLE: Automatic
+    ENABLE_HARDENED_RUNTIME: YES
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+targets:
+  Depotticker:
+    type: application
+    supportedDestinations: [macOS, iOS]
+    sources:
+      - path: Sources/Depotticker
+      - path: Resources
+    info:
+      path: Config/App-Info.plist
+      properties:
+        CFBundleDisplayName: Depotticker
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSApplicationCategoryType: public.app-category.finance
+        NSHumanReadableCopyright: © 2026 Dominik Ottenbreit
+        ITSAppUsesNonExemptEncryption: false
+        DepotAppGroup: group.com.depotticker.app
+        DepotUsesICloud: true
+        UILaunchScreen: {}
+        UIApplicationSupportsIndirectInputEvents: true
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.depotticker.app
+        PRODUCT_NAME: Depotticker
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: "1,2"
+        "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": Config/App-macOS.entitlements
+        "CODE_SIGN_ENTITLEMENTS[sdk=iphone*]": Config/App-iOS.entitlements
+    dependencies:
+      - target: DepottickerWidget
+  DepottickerWidget:
+    type: app-extension
+    supportedDestinations: [macOS, iOS]
+    sources:
+      - path: Widget/DepotWidget.swift
+      - path: Sources/Depotticker/Models.swift
+      - path: Sources/Depotticker/Yahoo.swift
+      - path: Sources/Depotticker/Format.swift
+      - path: Resources/PrivacyInfo.xcprivacy
+    info:
+      path: Config/Widget-Info.plist
+      properties:
+        CFBundleDisplayName: Depotticker
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        DepotAppGroup: group.com.depotticker.app
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.depotticker.app.widget
+        TARGETED_DEVICE_FAMILY: "1,2"
+        "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": Config/Widget-macOS.entitlements
+        "CODE_SIGN_ENTITLEMENTS[sdk=iphone*]": Config/Widget-iOS.entitlements
+schemes:
+  Depotticker:
+    build:
+      targets:
+        Depotticker: all
+    run:
+      config: Debug
+    archive:
+      config: Release
