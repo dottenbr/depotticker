@@ -10,8 +10,6 @@ struct ChartPanel: View {
     var color: Color
     /// The owner's average purchase price in the chart's currency, if it applies.
     var averageCost: Double?
-    /// Benchmark lines, aligned with `points`.
-    var comparisons: [ChartComparison] = []
     var ranges: [ChartRange] = ChartRange.allCases
     var error: String?
     @Binding var range: ChartRange
@@ -23,7 +21,6 @@ struct ChartPanel: View {
     @AppStorage("chartExtremes") private var showExtremes = true
     @AppStorage("chartCost") private var showCost = true
     @AppStorage("chartSessions") private var showSessions = true
-    @AppStorage("chartCompare") private var showComparisons = true
     @State private var pinchHandled = false
     @Environment(\.horizontalSizeClass) private var sizeClass
 
@@ -85,9 +82,6 @@ struct ChartPanel: View {
             Toggle("High and low", isOn: $showExtremes)
             Toggle("My average cost", isOn: $showCost)
             Toggle("Trading day separators", isOn: $showSessions)
-            if !comparisons.isEmpty {
-                Toggle("Compare with the market", isOn: $showComparisons)
-            }
         } label: {
             Label("Indicators", systemImage: "slider.horizontal.3")
                 .font(.caption)
@@ -153,8 +147,7 @@ struct ChartPanel: View {
     @ViewBuilder
     private var chart: some View {
         if points.count > 1 {
-            let compared = showComparisons ? comparisons.filter { $0.values.count == points.count } : []
-            let prices = points.map(\.price) + [baseline].compactMap { $0 } + compared.flatMap(\.values)
+            let prices = points.map(\.price) + [baseline].compactMap { $0 }
             let lo = prices.min() ?? 0
             let hi = prices.max() ?? 1
             let pad = max((hi - lo) * 0.1, hi * 0.0005)
@@ -165,7 +158,6 @@ struct ChartPanel: View {
 
             Chart {
                 priceMarks(floor: floor)
-                comparisonMarks(compared)
                 overlayMarks(cost: cost)
                 selectionMarks
             }
@@ -241,18 +233,6 @@ struct ChartPanel: View {
                      series: .value("Series", "price"))
                 .foregroundStyle(color)
                 .lineStyle(StrokeStyle(lineWidth: 1.8, lineJoin: .round))
-        }
-    }
-
-    @ChartContentBuilder
-    private func comparisonMarks(_ compared: [ChartComparison]) -> some ChartContent {
-        ForEach(compared) { comparison in
-            ForEach(Array(comparison.values.enumerated()), id: \.offset) { index, value in
-                LineMark(x: .value("Index", Double(index)), y: .value("Value", value),
-                         series: .value("Series", comparison.name))
-                    .foregroundStyle(comparison.color)
-                    .lineStyle(StrokeStyle(lineWidth: 1.3, lineJoin: .round))
-            }
         }
     }
 

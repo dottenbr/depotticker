@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+  <channel>
+    <title>Depotticker</title>
+    <link>https://depotticker.com/appcast.xml</link>
+    <item>
+      <title>Version 0.2</title>
+      <pubDate>Wed, 18 Nov 2026 08:18:26 +0100</pubDate>
+      <sparkle:version>2</sparkle:version>
+      <sparkle:shortVersionString>0.2</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+      <sparkle:releaseNotesLink>https://github.com/dottenbr/depotticker/releases/tag/v0.2</sparkle:releaseNotesLink>
+      <enclosure url="https://github.com/dottenbr/depotticker/releases/download/v0.2/Depotticker-0.2.zip" type="application/octet-stream" sparkle:edSignature="bBDRzitzAQkh3PR5Sz1eNT6yxPTGRAffKJP7tqRYOaPvDtgSfm2CFWLNm+Dn5R4mh8L8+2Gt141SLvIRT9uDDw==" length="2441730"/>
+    </item>
+  </channel>
+</rss>

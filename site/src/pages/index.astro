@@ -1,0 +1,52 @@
+---
+import Base from '../layouts/Base.astro';
+import release from '../release.json';
+
+const download = `https://github.com/dottenbr/depotticker/releases/download/v${release.version}/Depotticker-${release.version}.zip`;
+const features = [
+  ['All brokers in one place', 'Keep a portfolio per broker and see them together or one at a time. A share held at several brokers is added up and shown lot by lot.'],
+  ['Real gains in euros', "Value, today's change and total gain for every position. Costs stay in the currency you paid in, and the day's currency move is included."],
+  ['Purchases and sales', 'Record each purchase and sale with date and price and see the realised gain. Only know your average? The app can estimate the dates.'],
+  ['Charts with substance', 'From one day to all time, with trading volume, high and low, moving average and your own average cost. Pinch to change the period, drag to measure a move.'],
+  ['Key figures and news', 'P/E, earnings per share, market cap, dividend yield, analyst rating and the latest headlines for each stock.'],
+  ['Menu bar and widgets', "Today's change in the Mac menu bar, and small, medium and large widgets for the desktop and Home Screen."],
+  ['Private by design', 'No account, no tracking. Amounts hide automatically during calls and screen sharing, and windows can be kept out of recordings.'],
+  ['CSV in and out', 'Import positions from a spreadsheet or a Raymond James export, export them with current values, or start from the built-in template.'],
+  ['Ready for AI agents', 'A built-in MCP server lets assistants such as Claude read your portfolio and update positions when you ask them to.'],
+];
+---
+<Base
+  title="Depotticker – your whole portfolio, live"
+  description="A clean portfolio tracker for Mac, iPhone and iPad with live prices, real gains in euros and readable charts."
+>
+  <section class="hero">
+    <h1>Your whole portfolio,<br />live and at a glance.</h1>
+    <p class="lead">Depotticker brings the positions from all your brokers into one clean app for Mac, iPhone and iPad: live prices, your real gains and losses in euros, and charts that are easy to read.</p>
+    <div class="buttons">
+      <a class="button primary" href={download}>Download for Mac</a>
+      <span class="button soon">iPhone and iPad: coming to the App Store</span>
+    </div>
+    <p class="note">Version {release.version} · requires macOS 26 or later on Apple silicon · updates itself</p>
+    <div class="shots">
+      <img class="mac" src="/img/mac-overview.png" width="1800" height="1159" alt="Depotticker on the Mac: all portfolios with today's chart and position list" />
+    </div>
+    <div class="shots">
+      <img class="pad" src="/img/ipad-overview.png" width="1050" height="1400" loading="lazy" alt="Portfolio overview on iPad with value chart, portfolios and largest positions" />
+      <img class="phone" src="/img/iphone-stock.png" width="598" height="1300" loading="lazy" alt="Stock page on iPhone with price chart and trading volume" />
+    </div>
+  </section>
+
+  <section>
+    <div class="grid">
+      {features.map(([title, text]) => (
+        <div class="card"><h3>{title}</h3><p>{text}</p></div>
+      ))}
+    </div>
+  </section>
+
+  <section>
+    <h2>Install on the Mac</h2>
+    <p>Download the zip, open it and drag Depotticker into your Applications folder. The app checks for new versions by itself; you can also choose <em>Depotticker › Check for Updates…</em> at any time.</p>
+    <p>Questions? The <a href="/help/">help pages</a> cover every feature.</p>
+  </section>
+</Base>

@@ -94,7 +94,7 @@ if [[ "$mode" == "release" ]]; then
   else
     signature=$($sparkle/sign_update "$zip")
   fi
-  cat > docs/appcast.xml <<XML
+  cat > site/public/appcast.xml <<XML
 <?xml version="1.0" encoding="utf-8"?>
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
   <channel>
@@ -112,5 +112,9 @@ if [[ "$mode" == "release" ]]; then
   </channel>
 </rss>
 XML
+  # GitHub Pages keeps a copy at the address version 0.1 looks for its updates.
+  cp site/public/appcast.xml docs/appcast.xml
+  printf '{ "version": "%s" }\n' "$version" > site/src/release.json
   echo "Release archive: $zip"
+  echo "Next: publish the GitHub release, then deploy the website (pnpm --dir site run deploy)."
 fi

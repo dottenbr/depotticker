@@ -24,7 +24,10 @@ The direct build needs the full Xcode (the Command Line Tools alone lack the Swi
 - `Widget` – the WidgetKit extension
 - `Config`, `Resources`, `project.yml` – App Store project, entitlements, icons, privacy manifest
 - `Support`, `build.sh` – direct-download build
-- `docs` – website, help pages and the update feed (served by GitHub Pages)
+- `site` – the website (Astro), including help pages and the update feed
+- `docs` – only the update feed and a redirect at the old GitHub Pages address, for version 0.1
+- `Tests` – unit tests for the calculations and the importers (`swift test`)
+- `AppStore` – listing texts and screenshots
 
 ## Data source
 
@@ -32,4 +35,12 @@ Prices, charts, key figures and news come from Yahoo Finance's public web endpoi
 
 ## Website
 
-The site in `docs/` is served from https://depotticker.com by a Cloudflare Worker (`wrangler.jsonc`). After changing it, or after `./build.sh release` has rewritten `docs/appcast.xml`, deploy with `npx wrangler deploy`. GitHub Pages still serves the same folder at the old address so that version 0.1 finds its updates.
+The site in `site/` is built with [Astro](https://astro.build) and served from https://depotticker.com by a Cloudflare Worker (`wrangler.jsonc`). It does not deploy on push.
+
+```sh
+pnpm --dir site install
+pnpm --dir site dev      # local preview
+pnpm --dir site run deploy   # build and deploy; needs CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID
+```
+
+`./build.sh release` writes the update feed to `site/public/appcast.xml` and the version to `site/src/release.json`, so deploy the site after publishing a release.

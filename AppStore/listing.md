@@ -11,7 +11,7 @@ The Mac listing can use `docs/img/mac-overview.png` as a starting point (App Sto
 - **Age rating:** 4+
 - **Support URL:** https://depotticker.com/help/
 - **Marketing URL:** https://depotticker.com/
-- **Privacy policy URL:** https://depotticker.com/privacy.html
+- **Privacy policy URL:** https://depotticker.com/privacy/
 
 ## Promotional text (170 characters)
 

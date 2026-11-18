@@ -209,14 +209,6 @@ struct MarketSession: Hashable {
     }
 }
 
-/// An extra line drawn on a chart, aligned point by point with the main series.
-struct ChartComparison: Identifiable {
-    var name: String
-    var color: Color
-    var values: [Double]
-    var id: String { name }
-}
-
 struct DailyHistory {
     var currency: String
     var points: [ChartPoint]

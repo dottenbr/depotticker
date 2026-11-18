@@ -7,3 +7,5 @@ Config/*-Info.plist
 DerivedData/
 .wrangler/
 node_modules/
+site/dist/
+site/.astro/

@@ -1,10 +1,10 @@
 {
-  // The website: static files from docs/, served by a Cloudflare Worker on depotticker.com.
-  // Deploy with `npx wrangler deploy` (account and token come from the environment).
+  // The website: the Astro site in site/, built to site/dist and served by a Cloudflare Worker
+  // on depotticker.com. Deploy with `pnpm --dir site run deploy` (account and token come from the environment).
   "name": "depotticker-site",
   "compatibility_date": "2025-06-01",
   "workers_dev": false,
-  "assets": { "directory": "./docs", "html_handling": "auto-trailing-slash", "not_found_handling": "404-page" },
+  "assets": { "directory": "./site/dist", "html_handling": "auto-trailing-slash", "not_found_handling": "404-page" },
   "routes": [
     { "pattern": "depotticker.com", "custom_domain": true },
     { "pattern": "www.depotticker.com", "custom_domain": true }

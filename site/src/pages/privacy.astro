@@ -1,0 +1,7 @@
+---
+import Base from '../layouts/Base.astro';
+import content from '../content/privacy.html?raw';
+---
+<Base title="Depotticker Privacy" description="Depotticker has no accounts, no analytics and no advertising.">
+  <article set:html={content} />
+</Base>

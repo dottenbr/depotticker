@@ -1,0 +1,10 @@
+---
+import Base from '../layouts/Base.astro';
+import content from '../content/help.html?raw';
+---
+<Base
+  title="Depotticker Help"
+  description="How to use Depotticker: portfolios, charts, import and export, widgets, privacy, iCloud sync and AI agents."
+>
+  <article set:html={content} />
+</Base>

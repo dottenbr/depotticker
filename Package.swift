@@ -14,8 +14,9 @@ let package = Package(
             name: "Depotticker",
             dependencies: [.product(name: "Sparkle", package: "Sparkle")],
             path: "Sources/Depotticker",
-            swiftSettings: [.unsafeFlags(["-swift-version", "5"])],
             linkerSettings: [.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])]
-        )
-    ]
+        ),
+        .testTarget(name: "DepottickerTests", dependencies: ["Depotticker"], path: "Tests/DepottickerTests"),
+    ],
+    swiftLanguageVersions: [.v5]
 )

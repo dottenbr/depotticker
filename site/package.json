@@ -1,0 +1,22 @@
+{
+  "name": "depotticker-site",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "deploy": "astro build && wrangler deploy --config ../wrangler.jsonc"
+  },
+  "devDependencies": {
+    "astro": "^7.4.12",
+    "wrangler": "^4.164.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "sharp",
+      "workerd"
+    ]
+  }
+}
