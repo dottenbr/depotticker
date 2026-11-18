@@ -200,9 +200,9 @@ struct DetailView: View {
                 Stat(label: "Shares", value: Fmt.quantity(holding.quantity))
                 Stat(label: "Average cost", value: store.unitCost(holding).map { Fmt.money($0) } ?? "—")
                 Stat(label: "Invested", value: store.cost(holding).map { Fmt.money($0) } ?? "—")
-                if holding.hasTrades {
+                if holding.hasSales {
                     let realized = store.realized(holding)
-                    Stat(label: "Realised gain", value: Fmt.signedMoney(realized), color: .trend(realized))
+                    Stat(label: "Realised gain", value: realized.map { Fmt.signedMoney($0) } ?? "—", color: .trend(realized))
                 }
                 Stat(label: "Share of all portfolios",
                      value: value.map { total > 0 ? Fmt.plainPct($0 / total * 100) : "—" } ?? "—")

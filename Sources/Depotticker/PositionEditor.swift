@@ -88,7 +88,7 @@ struct PositionEditor: View {
                 } else {
                     LabeledContent("Shares", value: Fmt.quantity(draft.quantity))
                     LabeledContent("Average cost", value: costUnknown ? "unknown" : Fmt.money(draft.unitCost, currency))
-                    LabeledContent("Realised gain", value: Fmt.signedMoney(draft.realized, currency))
+                    LabeledContent("Realised gain", value: draft.realized.map { Fmt.signedMoney($0, currency) } ?? "unknown")
                 }
             }
             .formStyle(.columns)

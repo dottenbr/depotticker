@@ -120,7 +120,7 @@ enum MCPServer {
             row["transactions"] = position.orderedTrades.map {
                 ["type": $0.kind.rawValue, "date": $0.day ?? "unknown", "quantity": $0.quantity, "price": $0.price] as [String: Any]
             }
-            row["realized_gain"] = round2(position.realized)
+            row["realized_gain"] = position.realized.map { round2($0) as Any } ?? NSNull()
         }
         return row
     }
@@ -273,7 +273,7 @@ enum MCPServer {
             repository.save(portfolios)
             let updated = portfolios[index].positions.first { $0.symbol.uppercased() == symbol }!
             return "Recorded. \(symbol) in \(portfolios[index].name): \(updated.quantity) shares, average cost "
-                + "\(round2(updated.unitCost)) \(updated.currency), realised gain \(round2(updated.realized)) \(updated.currency)."
+                + "\(round2(updated.unitCost)) \(updated.currency), realised gain \(updated.realized.map { "\(round2($0)) \(updated.currency)" } ?? "unknown (purchase price unknown)")."
 
         case "remove_position":
             let index = try portfolioIndex()
