@@ -47,6 +47,6 @@ No sign-in is needed. Prices need an API key from the data vendor EODHD: open th
 ## Before submitting
 
 - Done in 0.3: the App Store builds contain no Yahoo code; prices come from EODHD with the user's own key, exchange rates from the ECB.
-- Get EODHD's written confirmation that user keys in a free open-source app are allowed (guideline 5.2.2: proof on request).
+- No vendor has been asked to confirm the user-key model; EODHD's terms neither permit nor forbid it. If App Review asks for proof under guideline 5.2.2, the answer is that each user is EODHD's own customer and the app holds no licence of its own.
 - Give App Review a way to see prices: a key for the review notes, or a demo mode.
 - Sign with an Apple Distribution certificate; enable iCloud (key-value storage) and the app group `group.com.depotticker.app`.
