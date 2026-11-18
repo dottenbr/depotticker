@@ -44,3 +44,7 @@ pnpm --dir site run deploy   # build and deploy; needs CLOUDFLARE_API_TOKEN and 
 ```
 
 `./build.sh release` writes the update feed to `site/public/appcast.xml` and the version to `site/src/release.json`, so deploy the site after publishing a release.
+
+## Licence
+
+MIT, see [LICENSE](LICENSE). Depotticker uses [Sparkle](https://sparkle-project.org) (MIT) for updates in the direct-download Mac build.
