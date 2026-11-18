@@ -29,3 +29,7 @@ The direct build needs the full Xcode (the Command Line Tools alone lack the Swi
 ## Data source
 
 Prices, charts, key figures and news come from Yahoo Finance's public web endpoints. They are unofficial, may be delayed and can change without notice. Depotticker is not investment advice.
+
+## Website
+
+The site in `docs/` is served from https://depotticker.com by a Cloudflare Worker (`wrangler.jsonc`). After changing it, or after `./build.sh release` has rewritten `docs/appcast.xml`, deploy with `npx wrangler deploy`. GitHub Pages still serves the same folder at the old address so that version 0.1 finds its updates.

@@ -5,3 +5,5 @@ Support/AppIcon.iconset/
 *.xcodeproj
 Config/*-Info.plist
 DerivedData/
+.wrangler/
+node_modules/
