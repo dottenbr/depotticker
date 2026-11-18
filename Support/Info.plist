@@ -15,7 +15,7 @@
     <key>NSHighResolutionCapable</key><true/>
     <key>NSHumanReadableCopyright</key><string>© 2026 Dominik Ottenbreit</string>
     <key>SUFeedURL</key><string>https://depotticker.com/appcast.xml</string>
-    <key>SUPublicEDKey</key><string>__SPARKLE_PUBLIC_KEY__</string>
+    <key>SUPublicEDKey</key><string>oisyk47PFDliZuUceyePY2+e/4sc27ZFmMMdHYiev64=</string>
     <key>SUEnableAutomaticChecks</key><true/>
     <key>DepotUsesICloud</key><false/>
     <key>NSPrincipalClass</key><string>NSApplication</string>

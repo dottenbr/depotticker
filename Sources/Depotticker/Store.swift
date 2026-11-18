@@ -36,6 +36,8 @@ final class Store: ObservableObject {
     @Published var showSourceSettings = CommandLine.arguments.contains("--source-settings")
     @Published var lastUpdate: Date?
     @Published var lastError: String?
+    /// Set when the portfolio file could not be read at launch; stays until the app is restarted.
+    @Published private(set) var dataProblem: String?
     @Published var menuBarMode: MenuBarMode {
         didSet { UserDefaults.standard.set(menuBarMode.rawValue, forKey: "menuBarMode") }
     }
@@ -83,7 +85,11 @@ final class Store: ObservableObject {
         menuBarMode = defaults.string(forKey: "menuBarMode").flatMap(MenuBarMode.init) ?? .percent
         autoHideAmounts = defaults.object(forKey: "autoHideAmounts") as? Bool ?? true
         excludeFromCapture = defaults.object(forKey: "excludeFromCapture") as? Bool ?? true
-        portfolios = repository.load()
+        let loaded = repository.loadChecked()
+        portfolios = loaded.portfolios
+        if let copy = loaded.unreadable {
+            dataProblem = "The portfolio file could not be read. It was kept as \(copy.lastPathComponent) in the data folder."
+        }
         if !MarketData.configure(directory: repository.directory), ProcessInfo.processInfo.environment["DEPOTTICKER_SOURCE"] == nil {
             // First start of a version with selectable sources: installs that already hold positions keep
             // the source they have been using; new installs start without one.

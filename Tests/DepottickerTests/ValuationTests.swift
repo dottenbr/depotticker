@@ -148,3 +148,27 @@ final class ChartRangeTests: XCTestCase {
         XCTAssertEqual(day(.fiveYears), "2021-11-18")
     }
 }
+
+final class RepositoryTests: XCTestCase {
+    func testAnUnreadableFileIsSetAsideInsteadOfBeingReplaced() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        setenv("DEPOTTICKER_DATA", directory.path, 1)
+        defer {
+            unsetenv("DEPOTTICKER_DATA")
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let repository = PortfolioRepository()
+        XCTAssertEqual(repository.directory.path, directory.path)
+        XCTAssertNil(repository.loadChecked().unreadable)   // no file yet
+
+        // One position lacks its quantity, which makes the whole file undecodable.
+        let damaged = Data(#"{"portfolios":[{"name":"A","positions":[{"symbol":"SAP.DE","name":"SAP"}]}]}"#.utf8)
+        try damaged.write(to: repository.localURL)
+        let loaded = repository.loadChecked()
+        XCTAssertTrue(loaded.portfolios.isEmpty)
+        let copy = try XCTUnwrap(loaded.unreadable)
+        repository.save([Portfolio(name: "New")])
+        XCTAssertEqual(try Data(contentsOf: copy), damaged)
+        XCTAssertEqual(repository.load().map(\.name), ["New"])
+    }
+}

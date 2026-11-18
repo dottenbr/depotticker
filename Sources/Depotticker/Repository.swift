@@ -43,17 +43,22 @@ struct PortfolioRepository {
         return try? encoder.encode(PortfolioFile(portfolios: portfolios))
     }
 
-    private func read(_ url: URL) -> [Portfolio]? {
-        (try? Data(contentsOf: url)).flatMap(Self.decode)
-    }
 
     /// Modification time of the file, used to notice changes made by the MCP server.
     func stamp() -> Date? {
         (try? FileManager.default.attributesOfItem(atPath: localURL.path))?[.modificationDate] as? Date
     }
 
-    func load() -> [Portfolio] {
-        read(localURL) ?? []
+    func load() -> [Portfolio] { loadChecked().portfolios }
+
+    /// A file that exists but cannot be read (damaged, or written by a newer version) must not be
+    /// lost when the next save replaces it: a copy is set aside and its name returned.
+    func loadChecked() -> (portfolios: [Portfolio], unreadable: URL?) {
+        guard let data = try? Data(contentsOf: localURL), !data.isEmpty else { return ([], nil) }
+        if let portfolios = Self.decode(data) { return (portfolios, nil) }
+        let copy = directory.appendingPathComponent("portfolios.unreadable-\(Trade.dayFormatter.string(from: Date())).json")
+        try? data.write(to: copy, options: .atomic)
+        return ([], copy)
     }
 
     func save(_ portfolios: [Portfolio]) {
