@@ -308,7 +308,9 @@ struct HoldingRow: View {
 
     private var pillTrend: Double? {
         switch pillMode {
-        case .dayPct, .dayEUR: return store.dayPct(holding.symbol)
+        case .dayPct: return store.dayPct(holding.symbol)
+        // The EUR change includes the exchange-rate move, so its sign can differ from the share's own.
+        case .dayEUR: return store.dayChange(holding)
         case .gainPct, .gainEUR: return store.gain(holding)
         }
     }

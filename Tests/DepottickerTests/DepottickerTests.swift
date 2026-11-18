@@ -2,7 +2,7 @@ import XCTest
 @testable import Depotticker
 
 final class TradeTests: XCTestCase {
-    func testAverageCostSurvivesASale() {
+    func testAverageCostSurvivesASale() throws {
         var position = Position(symbol: "AAPL", name: "Apple", quantity: 0, unitCost: 0, trades: [
             Trade(kind: .buy, day: "2023-03-14", quantity: 10, price: 150),
             Trade(kind: .buy, day: "2024-08-02", quantity: 10, price: 250),
@@ -10,20 +10,29 @@ final class TradeTests: XCTestCase {
         ])
         XCTAssertEqual(position.quantity, 15)
         XCTAssertEqual(position.unitCost, 200, accuracy: 1e-9)
-        XCTAssertEqual(position.realized, 500, accuracy: 1e-9)
+        XCTAssertEqual(try XCTUnwrap(position.realized), 500, accuracy: 1e-9)
 
         position.record(Trade(kind: .sell, day: "2025-06-01", quantity: 15, price: 100))
         XCTAssertEqual(position.quantity, 0)
-        XCTAssertEqual(position.realized, -1000, accuracy: 1e-9)
+        XCTAssertEqual(try XCTUnwrap(position.realized), -1000, accuracy: 1e-9)
     }
 
-    func testTradesAreAppliedInDateOrderWithUndatedFirst() {
+    func testTradesAreAppliedInDateOrderWithUndatedFirst() throws {
         let position = Position(symbol: "X", name: "X", quantity: 0, unitCost: 0, trades: [
             Trade(kind: .sell, day: "2024-01-01", quantity: 4, price: 20),
             Trade(kind: .buy, day: nil, quantity: 10, price: 10),
         ])
         XCTAssertEqual(position.quantity, 6)
-        XCTAssertEqual(position.realized, 40, accuracy: 1e-9)
+        XCTAssertEqual(try XCTUnwrap(position.realized), 40, accuracy: 1e-9)
+    }
+
+    func testSaleFromSharesOfUnknownCostHasNoStatedProfit() {
+        var position = Position(symbol: "X", name: "X", quantity: 10, unitCost: 0, costUnknown: true)
+        XCTAssertEqual(position.realized, 0)
+        position.record(Trade(kind: .sell, day: "2026-01-05", quantity: 4, price: 50))
+        XCTAssertEqual(position.quantity, 6)
+        // The proceeds (200) must not be reported as profit.
+        XCTAssertNil(position.realized)
     }
 
     func testFirstRecordedTradeKeepsTheExistingHolding() {

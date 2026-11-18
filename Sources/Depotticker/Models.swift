@@ -131,8 +131,14 @@ struct Position: Codable, Identifiable, Hashable {
         return (shares, shares > 0 ? cost / shares : 0, realized)
     }
 
-    /// Profit already taken through sales, in `currency`.
-    var realized: Double { tradeSummary?.realized ?? 0 }
+    var hasSales: Bool { trades.contains { $0.kind == .sell } }
+
+    /// Profit already taken through sales, in `currency`. Nil when shares were sold out of a holding
+    /// whose purchase price is unknown: the proceeds are known then, the profit is not.
+    var realized: Double? {
+        if costUnknown, hasSales { return nil }
+        return tradeSummary?.realized ?? 0
+    }
 
     /// Adds a trade. The first one turns the present holding into an undated opening purchase,
     /// so nothing already held is lost.
@@ -332,6 +338,7 @@ struct Holding: Identifiable, Hashable {
     /// Shares whose purchase price is known.
     var costedQuantity: Double { lots.reduce(0) { $0 + ($1.position.costUnknown ? 0 : $1.position.quantity) } }
     var hasTrades: Bool { lots.contains { !$0.position.trades.isEmpty } }
+    var hasSales: Bool { lots.contains { $0.position.hasSales } }
 }
 
 struct Totals {

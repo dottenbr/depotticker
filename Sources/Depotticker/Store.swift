@@ -517,9 +517,15 @@ final class Store: ObservableObject {
         return gain / cost * 100
     }
 
-    /// Profit already taken through recorded sales, in EUR at today's exchange rates.
-    func realized(_ holding: Holding) -> Double {
-        holding.lots.reduce(0) { $0 + $1.position.realized * (fx[$1.position.currency] ?? 0) }
+    /// Profit already taken through recorded sales, in EUR at today's exchange rates. Nil when it
+    /// cannot be stated: a sale out of shares of unknown cost, or a missing exchange rate.
+    func realized(_ holding: Holding) -> Double? {
+        var total = 0.0
+        for lot in holding.lots where lot.position.hasSales {
+            guard let realized = lot.position.realized, let rate = fx[lot.position.currency] else { return nil }
+            total += realized * rate
+        }
+        return total
     }
 
     func holdings(in portfolioID: UUID?) -> [Holding] {
