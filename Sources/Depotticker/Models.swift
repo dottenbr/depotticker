@@ -26,6 +26,15 @@ struct Trade: Codable, Identifiable, Hashable {
     var date: Date? { day.flatMap(Trade.dayFormatter.date(from:)) }
 }
 
+extension Calendar {
+    /// Trading days are counted in UTC so that a day reads the same in every time zone.
+    static let utc: Calendar = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        return calendar
+    }()
+}
+
 struct Position: Codable, Identifiable, Hashable {
     var id = UUID()
     var symbol: String
@@ -276,6 +285,22 @@ enum ChartRange: String, CaseIterable, Identifiable {
         }
     }
 
+    /// The first moment the range covers, counted back from `now`; nil for the intraday range.
+    func start(from now: Date = Date()) -> Date? {
+        let utc = Calendar.utc
+        switch self {
+        case .day: return nil
+        case .week: return utc.date(byAdding: .day, value: -7, to: now)
+        case .month: return utc.date(byAdding: .month, value: -1, to: now)
+        case .quarter: return utc.date(byAdding: .month, value: -3, to: now)
+        case .half: return utc.date(byAdding: .month, value: -6, to: now)
+        case .ytd: return utc.date(from: DateComponents(year: utc.component(.year, from: now), month: 1, day: 1))
+        case .year: return utc.date(byAdding: .year, value: -1, to: now)
+        case .fiveYears: return utc.date(byAdding: .year, value: -5, to: now)
+        case .max: return .distantPast
+        }
+    }
+
     var label: String {
         switch self {
         case .day: return "today"
@@ -337,7 +362,6 @@ struct Holding: Identifiable, Hashable {
     var quantity: Double { lots.reduce(0) { $0 + $1.position.quantity } }
     /// Shares whose purchase price is known.
     var costedQuantity: Double { lots.reduce(0) { $0 + ($1.position.costUnknown ? 0 : $1.position.quantity) } }
-    var hasTrades: Bool { lots.contains { !$0.position.trades.isEmpty } }
     var hasSales: Bool { lots.contains { $0.position.hasSales } }
 }
 

@@ -135,3 +135,16 @@ final class PortfolioHistoryTests: XCTestCase {
         XCTAssertEqual(PortfolioHistory.combine([a, b], range: .year).map(\.price), [15, 25])
     }
 }
+
+final class ChartRangeTests: XCTestCase {
+    func testRangesStartOnCalendarDatesInUTC() throws {
+        let now = try XCTUnwrap(Calendar.utc.date(from: DateComponents(year: 2026, month: 11, day: 18, hour: 9)))
+        func day(_ range: ChartRange) -> String? { range.start(from: now).map(DeutscheBoerse.day) }
+        XCTAssertNil(ChartRange.day.start(from: now))
+        XCTAssertEqual(day(.week), "2026-11-11")
+        XCTAssertEqual(day(.month), "2026-10-18")
+        XCTAssertEqual(day(.half), "2026-05-18")
+        XCTAssertEqual(day(.ytd), "2026-01-01")
+        XCTAssertEqual(day(.fiveYears), "2021-11-18")
+    }
+}

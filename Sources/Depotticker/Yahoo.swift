@@ -60,7 +60,7 @@ enum Yahoo {
                       let response = root["quoteResponse"] as? [String: Any],
                       let q = (response["result"] as? [[String: Any]])?.first
                 else { throw YahooError.malformed }
-                let scale = normalise(currency: q["currency"] as? String ?? "USD")
+                let scale = MarketData.normalise(currency: q["currency"] as? String ?? "USD")
                 return Fundamentals(
                     trailingPE: q["trailingPE"] as? Double,
                     forwardPE: q["forwardPE"] as? Double,
@@ -184,7 +184,7 @@ enum Yahoo {
               let m = result["meta"] as? [String: Any]
         else { throw YahooError.malformed }
 
-        let (currency, scale) = normalise(currency: m["currency"] as? String ?? "USD")
+        let (currency, scale) = MarketData.normalise(currency: m["currency"] as? String ?? "USD")
         let quote = ((result["indicators"] as? [String: Any])?["quote"] as? [[String: Any]])?.first ?? [:]
         let closes = quote["close"] as? [Any] ?? []
         let opens = (quote["open"] as? [Any] ?? []).compactMap { $0 as? Double }
@@ -234,7 +234,7 @@ enum Yahoo {
               let result = (chart["result"] as? [[String: Any]])?.first,
               let m = result["meta"] as? [String: Any]
         else { throw YahooError.malformed }
-        let (currency, scale) = normalise(currency: m["currency"] as? String ?? "USD")
+        let (currency, scale) = MarketData.normalise(currency: m["currency"] as? String ?? "USD")
         let quote = ((result["indicators"] as? [String: Any])?["quote"] as? [[String: Any]])?.first ?? [:]
         let closes = quote["close"] as? [Any] ?? []
         let stamps = result["timestamp"] as? [Any] ?? []
@@ -266,14 +266,5 @@ enum Yahoo {
         }
     }
 
-    /// Some exchanges quote in minor units (pence, cents).
-    static func normalise(currency: String) -> (String, Double) {
-        switch currency {
-        case "GBp", "GBX": return ("GBP", 0.01)
-        case "ZAc": return ("ZAR", 0.01)
-        case "ILA": return ("ILS", 0.01)
-        default: return (currency.uppercased(), 1)
-        }
-    }
 }
 #endif
