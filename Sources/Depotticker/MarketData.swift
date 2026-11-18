@@ -446,6 +446,26 @@ enum MarketData {
 
     // MARK: Helpers
 
+    /// Runs `work` for every item, at most `limit` at a time, and returns the items that gave a result.
+    static func each<Item: Sendable, Output: Sendable>(
+        _ items: [Item], limit: Int, _ work: @escaping @Sendable (Item) async -> Output?
+    ) async -> [(Item, Output)] {
+        var out: [(Item, Output)] = []
+        var iterator = items.makeIterator()
+        await withTaskGroup(of: (Item, Output?).self) { group in
+            func addNext() {
+                guard let item = iterator.next() else { return }
+                group.addTask { (item, await work(item)) }
+            }
+            for _ in 0..<limit { addNext() }
+            for await (item, output) in group {
+                if let output { out.append((item, output)) }
+                addNext()
+            }
+        }
+        return out
+    }
+
     static func batched<T>(_ symbols: [String], size: Int,
                            _ fetch: @escaping ([String]) async throws -> [String: T]) async throws -> [String: T] {
         let batches = stride(from: 0, to: symbols.count, by: size).map {

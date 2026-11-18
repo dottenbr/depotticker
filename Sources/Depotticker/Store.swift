@@ -338,17 +338,8 @@ final class Store: ObservableObject {
         let missing = symbols.filter { meta[$0] == nil && !metaInFlight.contains($0) }
         guard !missing.isEmpty else { return }
         metaInFlight.formUnion(missing)
-        var iterator = missing.makeIterator()
-        await withTaskGroup(of: SymbolMeta?.self) { group in
-            func addNext() {
-                guard let symbol = iterator.next() else { return }
-                group.addTask { try? await MarketData.chart(symbol, range: .day).meta }
-            }
-            for _ in 0..<4 { addNext() }
-            for await result in group {
-                if let result { meta[result.symbol] = result }
-                addNext()
-            }
+        for (symbol, fresh) in await MarketData.each(missing, limit: 4, { try? await MarketData.chart($0, range: .day).meta }) {
+            meta[symbol] = fresh
         }
         metaInFlight.subtract(missing)
         saveMeta()

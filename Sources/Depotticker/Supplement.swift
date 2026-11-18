@@ -64,8 +64,7 @@ extension MarketData {
             }
         }
         guard let first = own.first else { return converted.isEmpty ? nil : converted }
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(identifier: "UTC")!
+        let calendar = Calendar.utc
         let cut = calendar.startOfDay(for: first.date)
         if let last = converted.last(where: { $0.date < cut }), abs(last.price / first.price - 1) > 0.2 { return nil }
         // The exchange's own close wins on every day it has one; days the app was not running are
@@ -92,22 +91,7 @@ extension MarketData {
 
     /// The part of a daily history that a chart range shows, with the close before it.
     static func slice(_ points: [ChartPoint], range: ChartRange) -> PriceSeries? {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(identifier: "UTC")!
-        let now = Date()
-        let start: Date?
-        switch range {
-        case .day: start = nil
-        case .week: start = calendar.date(byAdding: .day, value: -7, to: now)
-        case .month: start = calendar.date(byAdding: .month, value: -1, to: now)
-        case .quarter: start = calendar.date(byAdding: .month, value: -3, to: now)
-        case .half: start = calendar.date(byAdding: .month, value: -6, to: now)
-        case .ytd: start = calendar.date(from: DateComponents(year: calendar.component(.year, from: now), month: 1, day: 1))
-        case .year: start = calendar.date(byAdding: .year, value: -1, to: now)
-        case .fiveYears: start = calendar.date(byAdding: .year, value: -5, to: now)
-        case .max: start = .distantPast
-        }
-        guard let start else { return nil }
+        guard let start = range.start() else { return nil }
         let shown = points.filter { $0.date >= start }
         guard shown.count > 1 else { return nil }
         return PriceSeries(points: shown, previousClose: points.last { $0.date < start }?.price)
@@ -115,22 +99,10 @@ extension MarketData {
 
     /// Longer ranges for shares the exchanges price, at most four downloads at a time.
     static func filledSeries(_ symbols: [String], range: ChartRange, fill: DataSource) async -> [String: PriceSeries] {
-        var out: [String: PriceSeries] = [:]
-        var iterator = symbols.makeIterator()
-        await withTaskGroup(of: (String, PriceSeries?).self) { group in
-            func addNext() {
-                guard let symbol = iterator.next() else { return }
-                group.addTask {
-                    guard let history = await filledHistory(symbol, fill: fill) else { return (symbol, nil) }
-                    return (symbol, slice(history.points, range: range))
-                }
-            }
-            for _ in 0..<4 { addNext() }
-            for await (symbol, series) in group {
-                if let series { out[symbol] = series }
-                addNext()
-            }
+        let found = await each(symbols, limit: 4) { symbol -> PriceSeries? in
+            guard let history = await filledHistory(symbol, fill: fill) else { return nil }
+            return slice(history.points, range: range)
         }
-        return out
+        return Dictionary(found, uniquingKeysWith: { first, _ in first })
     }
 }

@@ -90,11 +90,7 @@ enum DeutscheBoerse {
                      quantity: quantity, time: time, regular: !retail)
     }
 
-    private static let utc: Calendar = {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(identifier: "UTC")!
-        return calendar
-    }()
+    private static let utc = Calendar.utc
 
     /// "2026-11-18T12:00:00.017748534Z" to a date, ignoring the fraction.
     static func date(_ stamp: String) -> Date? {
@@ -107,11 +103,6 @@ enum DeutscheBoerse {
     static func day(_ date: Date) -> String {
         let c = utc.dateComponents([.year, .month, .day], from: date)
         return String(format: "%04d-%02d-%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0)
-    }
-
-    private static func minuteName(_ date: Date) -> String {
-        let c = utc.dateComponents([.hour, .minute], from: date)
-        return "\(day(date))T" + String(format: "%02d_%02d", c.hour ?? 0, c.minute ?? 0)
     }
 
     /// Applies one trade to the stored state. Trades may arrive in any order within a day.
@@ -560,7 +551,6 @@ enum DeutscheBoerse {
     /// filtered while they are read, so a later addition would mean reading them all again.
     private static func refreshed(_ asked: [String]) async -> State {
         let registered = MarketData.registeredISINs
-        let symbols = Array(registered.keys)
         let isins = Set(registered.values)
         guard !isins.isEmpty, asked.contains(where: { registered[$0] != nil }) else { return await engine.snapshot() }
         let venues = Venue.allCases
@@ -571,7 +561,6 @@ enum DeutscheBoerse {
             Task.detached(priority: .utility) { await engine.update(isins: isins, venues: venues) }
             return known
         }
-        _ = symbols
         await engine.update(isins: isins, venues: venues)
         return await engine.snapshot()
     }
@@ -604,6 +593,13 @@ enum DeutscheBoerse {
             guard !bars.isEmpty else { throw MarketDataError.noHistory }
             return PriceSeries(points: bars, previousClose: found.previous)
         }
+        guard let slice = MarketData.slice(closes(found, in: state), range: range) else { throw MarketDataError.noHistory }
+        return slice
+    }
+
+    /// The closes collected so far, oldest first, ending with the latest price of the current day.
+    private static func closes(_ found: Found, in state: State) -> [ChartPoint] {
+        let v = found.venue.rawValue
         var closes = (state.history[v]?[found.isin] ?? [:]).compactMap { day, price -> ChartPoint? in
             date(day + "T12:00:00").map { ChartPoint(date: $0, price: price) }
         }
@@ -611,22 +607,7 @@ enum DeutscheBoerse {
             closes.removeAll { $0.date == stamp }
             closes.append(ChartPoint(date: stamp, price: last.price))
         }
-        closes.sort { $0.date < $1.date }
-        let now = Date()
-        let start: Date
-        switch range {
-        case .week: start = now.addingTimeInterval(-7 * 86_400)
-        case .month: start = now.addingTimeInterval(-31 * 86_400)
-        case .quarter: start = now.addingTimeInterval(-92 * 86_400)
-        case .half: start = now.addingTimeInterval(-183 * 86_400)
-        case .ytd: start = utc.date(from: DateComponents(year: utc.component(.year, from: now), month: 1, day: 1)) ?? now
-        case .year: start = now.addingTimeInterval(-366 * 86_400)
-        case .fiveYears: start = now.addingTimeInterval(-5 * 366 * 86_400)
-        default: start = .distantPast
-        }
-        let slice = closes.filter { $0.date >= start }
-        guard slice.count > 1 else { throw MarketDataError.noHistory }
-        return PriceSeries(points: slice, previousClose: closes.last { $0.date < start }?.price)
+        return closes.sorted { $0.date < $1.date }
     }
 
     static func series(_ symbols: [String], range: ChartRange) async -> [String: PriceSeries] {
@@ -673,16 +654,7 @@ enum DeutscheBoerse {
     static func collected(_ symbol: String) async -> DailyHistory? {
         let state = await engine.snapshot()
         guard let found = find(symbol, in: state) else { return nil }
-        let v = found.venue.rawValue
-        var closes = (state.history[v]?[found.isin] ?? [:]).compactMap { day, price -> ChartPoint? in
-            date(day + "T12:00:00").map { ChartPoint(date: $0, price: price) }
-        }
-        if let today = state.day[v], let stamp = date(today + "T12:00:00"), let last = state.last[v]?[found.isin] {
-            closes.removeAll { $0.date == stamp }
-            closes.append(ChartPoint(date: stamp, price: last.price))
-        }
-        closes.sort { $0.date < $1.date }
-        return DailyHistory(currency: state.currency[found.isin] ?? "EUR", points: closes)
+        return DailyHistory(currency: state.currency[found.isin] ?? "EUR", points: closes(found, in: state))
     }
 
     /// The closing prices collected so far. Not enough for estimating purchase dates.

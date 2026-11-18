@@ -85,11 +85,7 @@ enum EODHD {
         return nil
     }
 
-    private static let utc: Calendar = {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(identifier: "UTC")!
-        return calendar
-    }()
+    private static let utc = Calendar.utc
 
     /// "2026-11-17" as noon UTC, so the day reads the same in every time zone.
     private static func day(_ text: String) -> Date? {
@@ -137,30 +133,23 @@ enum EODHD {
     /// the daily closes instead: the last close before the day of the quote.
     static func quotes(_ symbols: [String]) async throws -> [String: LiveQuote] {
         let now = try await live(symbols)
-        var out: [String: LiveQuote] = [:]
-        var iterator = now.makeIterator()
-        await withTaskGroup(of: (String, LiveQuote).self) { group in
-            func addNext() {
-                guard let (symbol, entry) = iterator.next() else { return }
-                group.addTask {
-                    var quote = entry.quote
-                    if let history = try? await dailyHistory(symbol) {
-                        let scale = await identity(symbol).units.1
-                        let dayStart = utc.startOfDay(for: entry.time ?? Date())
-                        if let previous = history.points.last(where: { $0.date < dayStart })?.price, previous > 0 {
-                            quote.previousClose = previous / scale
-                        }
-                    }
-                    return (symbol, quote)
-                }
-            }
-            for _ in 0..<6 { addNext() }
-            for await (symbol, quote) in group {
-                out[symbol] = quote
-                addNext()
+        let fixed = await MarketData.each(Array(now.keys), limit: 6) { symbol -> LiveQuote? in
+            guard let entry = now[symbol] else { return nil }
+            return await corrected(entry, symbol: symbol)
+        }
+        return Dictionary(fixed, uniquingKeysWith: { first, _ in first })
+    }
+
+    private static func corrected(_ entry: Live, symbol: String) async -> LiveQuote {
+        var quote = entry.quote
+        if let history = try? await dailyHistory(symbol) {
+            let scale = await identity(symbol).units.1
+            let dayStart = utc.startOfDay(for: entry.time ?? Date())
+            if let previous = history.points.last(where: { $0.date < dayStart })?.price, previous > 0 {
+                quote.previousClose = previous / scale
             }
         }
-        return out
+        return quote
     }
 
     // MARK: History
@@ -245,21 +234,6 @@ enum EODHD {
         return all.filter { utc.isDate($0.date, inSameDayAs: last.date) }
     }
 
-    private static func start(of range: ChartRange) -> Date? {
-        let now = Date()
-        switch range {
-        case .day: return nil
-        case .week: return utc.date(byAdding: .day, value: -7, to: now)
-        case .month: return utc.date(byAdding: .month, value: -1, to: now)
-        case .quarter: return utc.date(byAdding: .month, value: -3, to: now)
-        case .half: return utc.date(byAdding: .month, value: -6, to: now)
-        case .ytd: return utc.date(from: DateComponents(year: utc.component(.year, from: now), month: 1, day: 1))
-        case .year: return utc.date(byAdding: .year, value: -1, to: now)
-        case .fiveYears: return utc.date(byAdding: .year, value: -5, to: now)
-        case .max: return .distantPast
-        }
-    }
-
     /// Points of one range in the listing's currency, plus the close before the first point of a day range.
     private static func points(_ symbol: String, range: ChartRange) async throws -> PriceSeries {
         let history = try await dailyHistory(symbol)
@@ -270,7 +244,7 @@ enum EODHD {
             let dayStart = utc.startOfDay(for: first.date)
             return PriceSeries(points: bars, previousClose: history.points.last { $0.date < dayStart }?.price)
         }
-        guard let start = start(of: range) else { throw MarketDataError.malformed }
+        guard let start = range.start() else { throw MarketDataError.malformed }
         var points = history.points.filter { $0.date >= start }
         if range == .max {
             // Month ends are enough for decades of history.
@@ -290,36 +264,26 @@ enum EODHD {
 
     /// Price history in raw quote units, as the store expects (it applies the scale itself).
     static func series(_ symbols: [String], range: ChartRange) async -> [String: PriceSeries] {
-        var out: [String: PriceSeries] = [:]
-        var iterator = symbols.makeIterator()
-        await withTaskGroup(of: (String, PriceSeries?).self) { group in
-            func addNext() {
-                guard let symbol = iterator.next() else { return }
-                group.addTask {
-                    guard var series = try? await points(symbol, range: range) else { return (symbol, nil) }
-                    let scale = await identity(symbol).units.1
-                    if scale != 1 {
-                        series.points = series.points.map { ChartPoint(date: $0.date, price: $0.price / scale, volume: $0.volume) }
-                        series.previousClose = series.previousClose.map { $0 / scale }
-                    }
-                    return (symbol, series)
-                }
+        let found = await MarketData.each(symbols, limit: 6) { symbol -> PriceSeries? in
+            guard var series = try? await points(symbol, range: range) else { return nil }
+            let scale = await identity(symbol).units.1
+            if scale != 1 {
+                series.points = series.points.map { ChartPoint(date: $0.date, price: $0.price / scale, volume: $0.volume) }
+                series.previousClose = series.previousClose.map { $0 / scale }
             }
-            for _ in 0..<6 { addNext() }
-            for await (symbol, series) in group {
-                if let series { out[symbol] = series }
-                addNext()
-            }
+            return series
         }
-        return out
+        return Dictionary(found, uniquingKeysWith: { first, _ in first })
     }
 
     static func chart(_ symbol: String, range: ChartRange) async throws -> ChartData {
         let series = try await points(symbol, range: range)
         let identity = await identity(symbol)
         let (currency, scale) = identity.units
+        // One live request serves both the day's figures and the corrected previous close.
         let now = try? await live([symbol])[symbol]
-        let corrected = try? await quotes([symbol])[symbol]
+        var corrected: LiveQuote?
+        if let now { corrected = await self.corrected(now, symbol: symbol) }
         let history = try? await dailyHistory(symbol)
         let yearAgo = Date().addingTimeInterval(-365 * 86_400)
         let year = history?.points.filter { $0.date >= yearAgo }.map(\.price) ?? []
