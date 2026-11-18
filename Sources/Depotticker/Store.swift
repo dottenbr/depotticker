@@ -79,6 +79,8 @@ final class Store: ObservableObject {
     private var loadedStamp: Date?
     private var seriesCache: [ChartRange: (fetched: Date, series: [String: PriceSeries])] = [:]
     private var historyInFlight: Set<ChartRange> = []
+    /// The symbols the cached price series were downloaded for.
+    private var seriesSymbols: Set<String> = []
 
     init() {
         let defaults = UserDefaults.standard
@@ -87,9 +89,7 @@ final class Store: ObservableObject {
         excludeFromCapture = defaults.object(forKey: "excludeFromCapture") as? Bool ?? true
         let loaded = repository.loadChecked()
         portfolios = loaded.portfolios
-        if let copy = loaded.unreadable {
-            dataProblem = "The portfolio file could not be read. It was kept as \(copy.lastPathComponent) in the data folder."
-        }
+        dataProblem = loaded.problem?.message
         if !MarketData.configure(directory: repository.directory), ProcessInfo.processInfo.environment["DEPOTTICKER_SOURCE"] == nil {
             // First start of a version with selectable sources: installs that already hold positions keep
             // the source they have been using; new installs start without one.
@@ -204,7 +204,7 @@ final class Store: ObservableObject {
         meta = repository.loadMeta()
         lastError = nil
         WidgetCenter.shared.reloadAllTimelines()
-        invalidateHistories()
+        invalidateHistories(reload: true)
         Task {
             if source == .boerse { await resolveISINs() }
             await refresh()
@@ -236,7 +236,7 @@ final class Store: ObservableObject {
         }
         isinProgress = nil
         unresolvedISINs = missing
-        invalidateHistories()
+        invalidateHistories(reload: true)
     }
 
     // MARK: Import and export
@@ -385,6 +385,7 @@ final class Store: ObservableObject {
         let series = await MarketData.series(symbols, range: range)
         guard series.count * 2 >= symbols.count else { return }
         seriesCache[range] = (Date(), series)
+        seriesSymbols = Set(symbols)
         recomputeHistories(for: range)
         saveHistories()
     }
@@ -427,11 +428,18 @@ final class Store: ObservableObject {
         histories = saved
     }
 
-    /// Holdings changed: the cached histories no longer match.
-    private func invalidateHistories() {
-        seriesCache.removeAll()
+    /// Holdings changed: the value histories no longer match. While the same shares are held (a
+    /// changed quantity, a move between portfolios) the downloaded prices still apply and only the sums
+    /// are redone; `reload` forces new downloads (another source, new ISINs).
+    private func invalidateHistories(reload: Bool = false) {
         histories.removeAll()
-        Task { await preloadHistories(force: true) }
+        if reload || Set(allSymbols) != seriesSymbols {
+            seriesCache.removeAll()
+        } else {
+            for range in seriesCache.keys { recomputeHistories(for: range) }
+            saveHistories()
+        }
+        Task { await preloadHistories() }
     }
 
     /// Called by the detail view when it has fresher statistics for a symbol.

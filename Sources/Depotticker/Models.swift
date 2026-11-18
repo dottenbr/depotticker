@@ -171,6 +171,34 @@ struct Portfolio: Codable, Identifiable, Hashable {
     var id = UUID()
     var name: String
     var positions: [Position] = []
+
+    enum CodingKeys: String, CodingKey { case id, name, positions }
+}
+
+extension Portfolio {
+    /// A position that cannot be read (a missing field, a wrong type) is left out instead of making
+    /// the whole file unreadable; `SkippedEntries` in the decoder's `userInfo` counts them.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        name = try c.decode(String.self, forKey: .name)
+        let entries = try c.decodeIfPresent([Lossy<Position>].self, forKey: .positions) ?? []
+        positions = entries.compactMap(\.value)
+        (decoder.userInfo[SkippedEntries.key] as? SkippedEntries)?.count += entries.count - positions.count
+    }
+}
+
+/// Decodes to nil instead of failing.
+struct Lossy<Value: Decodable>: Decodable {
+    var value: Value?
+
+    init(from decoder: Decoder) throws { value = try? Value(from: decoder) }
+}
+
+/// Counts what a lenient decode left out.
+final class SkippedEntries {
+    static let key = CodingUserInfoKey(rawValue: "skippedEntries")!
+    var count = 0
 }
 
 struct PortfolioFile: Codable {
