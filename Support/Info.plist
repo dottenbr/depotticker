@@ -8,13 +8,13 @@
     <key>CFBundleExecutable</key><string>Depotticker</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>0.1</string>
-    <key>CFBundleVersion</key><string>1</string>
+    <key>CFBundleShortVersionString</key><string>0.2</string>
+    <key>CFBundleVersion</key><string>2</string>
     <key>LSMinimumSystemVersion</key><string>26.0</string>
     <key>LSApplicationCategoryType</key><string>public.app-category.finance</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSHumanReadableCopyright</key><string>© 2026 Dominik Ottenbreit</string>
-    <key>SUFeedURL</key><string>https://dottenbr.github.io/depotticker/appcast.xml</string>
+    <key>SUFeedURL</key><string>https://depotticker.com/appcast.xml</string>
     <key>SUPublicEDKey</key><string>__SPARKLE_PUBLIC_KEY__</string>
     <key>SUEnableAutomaticChecks</key><true/>
     <key>DepotUsesICloud</key><false/>

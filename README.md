@@ -2,7 +2,7 @@
 
 A clean portfolio tracker for Mac, iPhone and iPad: live prices, real gains and losses in euros, readable charts, widgets, a menu bar item, CSV import and export, and a built-in MCP server for AI agents.
 
-Website and help: https://dottenbr.github.io/depotticker/
+Website and help: https://depotticker.com/
 
 ## Install
 

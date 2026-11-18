@@ -1,15 +1,149 @@
 import Foundation
 import SwiftUI
 
+/// One purchase or sale of a position.
+struct Trade: Codable, Identifiable, Hashable {
+    enum Kind: String, Codable, CaseIterable { case buy, sell }
+
+    var id = UUID()
+    var kind: Kind
+    /// Calendar day as yyyy-MM-dd; nil for a holding whose purchase date is not known.
+    var day: String?
+    var quantity: Double
+    /// Price per share in the position's currency.
+    var price: Double
+    /// True when the date is a guess derived from the average cost, not a recorded purchase.
+    var estimated: Bool?
+
+    static let dayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
+
+    var date: Date? { day.flatMap(Trade.dayFormatter.date(from:)) }
+}
+
 struct Position: Codable, Identifiable, Hashable {
     var id = UUID()
     var symbol: String
     var name: String
     var quantity: Double
-    /// Average purchase price per share in EUR.
+    /// Average purchase price per share, in `currency`.
     var unitCost: Double
+    /// Currency of the purchase prices (the broker's account currency), not of the listing.
+    var currency: String = "EUR"
+    /// True when the broker does not report what was paid; such positions count towards value, not gains.
+    var costUnknown: Bool = false
+    /// Purchases and sales. When present, `quantity` and `unitCost` are derived from them.
+    var trades: [Trade] = []
+    /// The broker's holding-period hint, when it gives one: "long" (over a year), "short" or "mixed".
+    var timeHeld: String?
+
+    /// Cost is known but no purchase carries a date yet.
+    var needsPurchaseDate: Bool {
+        !costUnknown && quantity > 0 && unitCost > 0 && trades.allSatisfy { $0.day == nil }
+    }
+
+    /// Dates entered by the user or read from a file, as opposed to estimates.
+    var hasRecordedTrades: Bool { trades.contains { $0.day != nil && $0.estimated != true } }
 
     var cost: Double { quantity * unitCost }
+
+    init(id: UUID = UUID(), symbol: String, name: String, quantity: Double, unitCost: Double,
+         currency: String = "EUR", costUnknown: Bool = false, trades: [Trade] = [], timeHeld: String? = nil) {
+        self.timeHeld = timeHeld
+        self.id = id
+        self.symbol = symbol
+        self.name = name
+        self.quantity = quantity
+        self.unitCost = unitCost
+        self.currency = currency
+        self.costUnknown = costUnknown
+        self.trades = trades
+        applyTrades()
+    }
+
+    enum CodingKeys: String, CodingKey { case id, symbol, name, quantity, unitCost, currency, costUnknown, trades, timeHeld }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        symbol = try c.decode(String.self, forKey: .symbol)
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? symbol
+        quantity = try c.decode(Double.self, forKey: .quantity)
+        unitCost = try c.decodeIfPresent(Double.self, forKey: .unitCost) ?? 0
+        currency = try c.decodeIfPresent(String.self, forKey: .currency) ?? "EUR"
+        costUnknown = try c.decodeIfPresent(Bool.self, forKey: .costUnknown) ?? false
+        trades = try c.decodeIfPresent([Trade].self, forKey: .trades) ?? []
+        timeHeld = try c.decodeIfPresent(String.self, forKey: .timeHeld)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(symbol, forKey: .symbol)
+        try c.encode(name, forKey: .name)
+        try c.encode(quantity, forKey: .quantity)
+        try c.encode(unitCost, forKey: .unitCost)
+        // Written only when they differ from the defaults, so plain EUR files stay as they were.
+        if currency != "EUR" { try c.encode(currency, forKey: .currency) }
+        if costUnknown { try c.encode(true, forKey: .costUnknown) }
+        if !trades.isEmpty { try c.encode(trades, forKey: .trades) }
+        try c.encodeIfPresent(timeHeld, forKey: .timeHeld)
+    }
+
+    /// Trades in date order; undated ones (the opening holding) first.
+    var orderedTrades: [Trade] {
+        trades.enumerated().sorted { a, b in
+            let x = a.element.day ?? "", y = b.element.day ?? ""
+            return x == y ? a.offset < b.offset : x < y
+        }.map(\.element)
+    }
+
+    /// Shares, average cost and realised gain after all trades, by the average-cost method:
+    /// a sale leaves the average cost of the remaining shares unchanged.
+    var tradeSummary: (quantity: Double, unitCost: Double, realized: Double)? {
+        guard !trades.isEmpty else { return nil }
+        var shares = 0.0, cost = 0.0, realized = 0.0
+        for trade in orderedTrades {
+            switch trade.kind {
+            case .buy:
+                shares += trade.quantity
+                cost += trade.quantity * trade.price
+            case .sell:
+                let sold = min(trade.quantity, shares)
+                let average = shares > 0 ? cost / shares : 0
+                realized += sold * (trade.price - average)
+                cost -= sold * average
+                shares -= sold
+            }
+        }
+        if shares < 1e-9 { shares = 0; cost = 0 }
+        return (shares, shares > 0 ? cost / shares : 0, realized)
+    }
+
+    /// Profit already taken through sales, in `currency`.
+    var realized: Double { tradeSummary?.realized ?? 0 }
+
+    /// Adds a trade. The first one turns the present holding into an undated opening purchase,
+    /// so nothing already held is lost.
+    mutating func record(_ trade: Trade) {
+        if trades.isEmpty, quantity > 0 {
+            trades.append(Trade(kind: .buy, day: nil, quantity: quantity, price: costUnknown ? 0 : unitCost))
+        }
+        trades.append(trade)
+        applyTrades()
+    }
+
+    /// Brings `quantity` and `unitCost` in line with the trades.
+    mutating func applyTrades() {
+        guard let summary = tradeSummary else { return }
+        quantity = summary.quantity
+        unitCost = summary.unitCost
+    }
 }
 
 struct Portfolio: Codable, Identifiable, Hashable {
@@ -81,6 +215,11 @@ struct ChartComparison: Identifiable {
     var color: Color
     var values: [Double]
     var id: String { name }
+}
+
+struct DailyHistory {
+    var currency: String
+    var points: [ChartPoint]
 }
 
 struct PriceSeries {
@@ -191,18 +330,23 @@ struct Holding: Identifiable, Hashable {
 
     var id: String { symbol }
     var quantity: Double { lots.reduce(0) { $0 + $1.position.quantity } }
-    var cost: Double { lots.reduce(0) { $0 + $1.position.cost } }
-    var unitCost: Double { quantity > 0 ? cost / quantity : 0 }
+    /// Shares whose purchase price is known.
+    var costedQuantity: Double { lots.reduce(0) { $0 + ($1.position.costUnknown ? 0 : $1.position.quantity) } }
+    var hasTrades: Bool { lots.contains { !$0.position.trades.isEmpty } }
 }
 
 struct Totals {
     var value = 0.0
+    /// Amount paid for the positions whose cost is known, in EUR at today's exchange rates.
     var cost = 0.0
+    /// Value minus cost of the positions whose cost is known.
+    var gain = 0.0
     var day = 0.0
     var count = 0
     var missing = 0
+    /// Positions without a known purchase price; they are left out of `cost` and `gain`.
+    var uncosted = 0
 
-    var gain: Double { value - cost }
     var gainPct: Double { cost > 0 ? gain / cost * 100 : 0 }
     var dayPct: Double {
         let start = value - day

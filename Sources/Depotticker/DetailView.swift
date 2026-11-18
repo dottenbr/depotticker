@@ -28,8 +28,8 @@ struct DetailView: View {
 
     /// Your average purchase price converted from EUR into the listing's currency.
     private var averageCostNative: Double? {
-        guard let rate = store.fx[currency], rate > 0, holding.unitCost > 0 else { return nil }
-        return holding.unitCost / rate
+        guard let rate = store.fx[currency], rate > 0, let cost = store.unitCost(holding), cost > 0 else { return nil }
+        return cost / rate
     }
 
     private var currentPrice: Double? {
@@ -198,8 +198,12 @@ struct DetailView: View {
                 Stat(label: "Total gain", value: gain.map { Fmt.signedMoney($0) } ?? "—", color: .trend(gain))
                 Stat(label: "Total gain %", value: store.gainPct(holding).map(Fmt.pct) ?? "—", color: .trend(gain))
                 Stat(label: "Shares", value: Fmt.quantity(holding.quantity))
-                Stat(label: "Average cost", value: Fmt.money(holding.unitCost))
-                Stat(label: "Invested", value: Fmt.money(holding.cost))
+                Stat(label: "Average cost", value: store.unitCost(holding).map { Fmt.money($0) } ?? "—")
+                Stat(label: "Invested", value: store.cost(holding).map { Fmt.money($0) } ?? "—")
+                if holding.hasTrades {
+                    let realized = store.realized(holding)
+                    Stat(label: "Realised gain", value: Fmt.signedMoney(realized), color: .trend(realized))
+                }
                 Stat(label: "Share of all portfolios",
                      value: value.map { total > 0 ? Fmt.plainPct($0 / total * 100) : "—" } ?? "—")
             }
@@ -304,13 +308,18 @@ private struct LotRow: View {
 
     var body: some View {
         let position = lot.position
-        let gain = priceEUR.map { ($0 - position.unitCost) * position.quantity }
+        let rate = store.fx[position.currency]
+        let gain: Double? = position.costUnknown ? nil : priceEUR.flatMap { price in
+            rate.map { (price - position.unitCost * $0) * position.quantity }
+        }
+        VStack(alignment: .leading, spacing: 4) {
         HStack(spacing: 12) {
             Text(lot.portfolioName)
                 .font(.system(size: 13, weight: .medium))
                 .lineLimit(1)
                 .frame(minWidth: 70, alignment: .leading)
-            Text("\(Fmt.quantity(position.quantity)) × \(Fmt.money(position.unitCost))")
+            Text(position.costUnknown ? "\(Fmt.quantity(position.quantity)) · purchase price unknown"
+                 : "\(Fmt.quantity(position.quantity)) × \(Fmt.money(position.unitCost, position.currency))")
                 .font(.system(size: 13).monospacedDigit())
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
@@ -330,7 +339,21 @@ private struct LotRow: View {
                 Image(systemName: "pencil")
             }
             .buttonStyle(.borderless)
-            .help("Edit this position")
+            .help("Edit this position or record a purchase or sale")
+        }
+        ForEach(position.orderedTrades) { trade in
+            HStack(spacing: 6) {
+                Image(systemName: trade.kind == .buy ? "arrow.down.circle" : "arrow.up.circle")
+                    .foregroundStyle(trade.kind == .buy ? Color.secondary : Color.orange)
+                Text((trade.date.map { $0.formatted(date: .abbreviated, time: .omitted) } ?? "Date unknown")
+                     + (trade.estimated == true ? " (estimated)" : ""))
+                Text("\(trade.kind == .buy ? "Bought" : "Sold") \(Fmt.quantity(trade.quantity)) × \(Fmt.money(trade.price, position.currency))")
+                Spacer()
+            }
+            .font(.system(size: 11).monospacedDigit())
+            .foregroundStyle(.secondary)
+            .padding(.leading, 12)
+        }
         }
     }
 }

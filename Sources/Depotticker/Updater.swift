@@ -2,8 +2,8 @@ import SwiftUI
 
 /// Addresses used by the app. The site also hosts the update feed for the direct-download build.
 enum Links {
-    static let site = URL(string: "https://dottenbr.github.io/depotticker/")!
-    static let help = URL(string: "https://dottenbr.github.io/depotticker/help/")!
+    static let site = URL(string: "https://depotticker.com/")!
+    static let help = URL(string: "https://depotticker.com/help/")!
 }
 
 #if canImport(Sparkle)

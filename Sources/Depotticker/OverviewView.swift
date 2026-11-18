@@ -19,11 +19,14 @@ struct OverviewView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 header(totals)
-                ChartPanel(points: history, baseline: nil,
-                           color: .trend((history.last?.price ?? 0) - (history.first?.price ?? 0)),
+                // On 1D the reference is yesterday's close, so chart and header agree with "Today".
+                let previousClose: Double? = range == .day && totals.value > 0 ? totals.value - totals.day : nil
+                ChartPanel(points: history, baseline: previousClose,
+                           color: .trend(previousClose != nil ? totals.day
+                                         : (history.last?.price ?? 0) - (history.first?.price ?? 0)),
                            ranges: Store.historyRanges, error: nil,
                            range: $range, hoverIndex: $hoverIndex, dragStart: $dragStart)
-                Text("Performance of today's holdings as if they had been held over the whole period, at today's exchange rates.")
+                Text(chartNote)
                     .font(.caption)
                     .foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -50,6 +53,11 @@ struct OverviewView: View {
                     movers("Top losers today", holdings: holdings, ascending: true)
                 }
 
+                if totals.uncosted > 0 {
+                    Text("\(totals.uncosted) position(s) have no known purchase price. They count towards the value, but not towards total gain and invested.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 if totals.missing > 0 {
                     Text("\(totals.missing) position(s) have no quote yet and are not included in the totals.")
                         .font(.caption)
@@ -70,10 +78,30 @@ struct OverviewView: View {
 
     private func header(_ totals: Totals) -> some View {
         let hovered = hoverIndex.flatMap { history.indices.contains($0) ? history[$0] : nil }
-        let from = dragStart.flatMap { history.indices.contains($0) ? history[$0] : nil } ?? history.first
+        let measured = dragStart.flatMap { history.indices.contains($0) ? history[$0].price : nil }
         let value = hovered?.price ?? (totals.value > 0 ? totals.value : nil)
-        let change = value.flatMap { v in from.map { v - $0.price } }
-        let changePct = change.flatMap { c in from.map { $0.price > 0 ? c / $0.price * 100 : 0 } }
+        // At rest the header shows your real figures: today's change on 1D, otherwise your total gain.
+        // The chart's own period change is not your return and is only read out while you point at it.
+        var change: Double?
+        var changePct: Double?
+        var caption = ""
+        if let hovered {
+            if let from = measured ?? history.first?.price, from > 0 {
+                change = hovered.price - from
+                changePct = (hovered.price - from) / from * 100
+            }
+            caption = "these shares · " + chartCaption(points: history, hoverIndex: hoverIndex, dragStart: dragStart, range: range)
+        } else if totals.value > 0 {
+            if range == .day {
+                change = totals.day
+                changePct = totals.dayPct
+                caption = "today"
+            } else if totals.cost > 0 {
+                change = totals.gain
+                changePct = totals.gainPct
+                caption = "total gain since purchase"
+            }
+        }
 
         return VStack(alignment: .leading, spacing: 6) {
             Text(store.selectedPortfolioName)
@@ -89,12 +117,21 @@ struct OverviewView: View {
                     Text("\(Fmt.signedMoney(change, decimals: 0))  \(Fmt.pct(changePct))")
                         .font(.system(size: 17, weight: .medium).monospacedDigit())
                         .foregroundStyle(Color.trend(change))
-                    Text(chartCaption(points: history, hoverIndex: hoverIndex, dragStart: dragStart, range: range))
+                    Text(caption)
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
             }
         }
+    }
+
+    /// Explains what the chart is, and on longer ranges what it is not.
+    private var chartNote: String {
+        guard range != .day, let first = history.first?.price, let last = history.last?.price, first > 0 else {
+            return "Value of the shares you hold today during the day, at today's exchange rates."
+        }
+        return "Price history of the shares you hold today, at today's exchange rates: \(Fmt.pct((last / first - 1) * 100)) over the \(range.label). "
+            + "This is not your own return, because it ignores when and at what price you bought. Your return is the total gain."
     }
 
     private func tile(_ title: String, _ main: String, _ sub: String, _ trend: Double?) -> some View {

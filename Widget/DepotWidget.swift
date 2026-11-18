@@ -20,6 +20,7 @@ struct DepotEntry: TimelineEntry, Codable {
     var date: Date
     var value: Double
     var cost: Double
+    var gain: Double
     var day: Double
     var portfolios: [WidgetPortfolio]
     var movers: [WidgetMover]
@@ -28,11 +29,10 @@ struct DepotEntry: TimelineEntry, Codable {
         let start = value - day
         return start > 0 ? day / start * 100 : 0
     }
-    var gain: Double { value - cost }
     var gainPct: Double { cost > 0 ? gain / cost * 100 : 0 }
 
     static let placeholder = DepotEntry(
-        date: Date(), value: 125_480, cost: 98_000, day: 842,
+        date: Date(), value: 125_480, cost: 98_000, gain: 27_480, day: 842,
         portfolios: [
             WidgetPortfolio(name: "Broker A", value: 80_300, day: 610, dayPct: 0.77),
             WidgetPortfolio(name: "Broker B", value: 45_180, day: 232, dayPct: 0.52),
@@ -75,7 +75,8 @@ enum WidgetData {
         var seen = Set<String>()
         let symbols = file.portfolios.flatMap(\.positions).map(\.symbol).filter { seen.insert($0).inserted }
         guard !symbols.isEmpty else { return cached }
-        let currencies = Set(symbols.compactMap { meta[$0]?.currency }).subtracting(["EUR"])
+        let currencies = Set(symbols.compactMap { meta[$0]?.currency })
+            .union(file.portfolios.flatMap(\.positions).map(\.currency)).subtracting(["EUR"])
         let all = symbols + currencies.map { "\($0)EUR=X" }
         let batches = stride(from: 0, to: all.count, by: Yahoo.batchSize).map {
             Array(all[$0..<min($0 + Yahoo.batchSize, all.count)])
@@ -99,7 +100,7 @@ enum WidgetData {
             }
         }
 
-        var entry = DepotEntry(date: Date(), value: 0, cost: 0, day: 0, portfolios: [], movers: [])
+        var entry = DepotEntry(date: Date(), value: 0, cost: 0, gain: 0, day: 0, portfolios: [], movers: [])
         for portfolio in file.portfolios {
             var summary = WidgetPortfolio(name: portfolio.name, value: 0, day: 0, dayPct: 0)
             for position in portfolio.positions {
@@ -109,7 +110,10 @@ enum WidgetData {
                 let factor = m.scale * position.quantity
                 summary.value += quote.price * rate * factor
                 summary.day += (quote.price * rate - quote.previousClose * (fxPrevious[m.currency] ?? rate)) * factor
-                entry.cost += position.cost
+                if !position.costUnknown, let costRate = fx[position.currency] {
+                    entry.cost += position.cost * costRate
+                    entry.gain += quote.price * rate * factor - position.cost * costRate
+                }
             }
             let start = summary.value - summary.day
             summary.dayPct = start > 0 ? summary.day / start * 100 : 0

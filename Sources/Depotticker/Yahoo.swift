@@ -220,6 +220,29 @@ enum Yahoo {
         return ChartData(meta: meta, points: points, previousClose: prev, session: session)
     }
 
+    /// Every daily close on record, oldest first, in the listing's currency.
+    static func dailyHistory(_ symbol: String) async throws -> DailyHistory {
+        let obj = try await json("/v8/finance/chart/\(symbol)", [
+            // An explicit period keeps daily resolution; "range=max" falls back to monthly bars.
+            "period1": "0", "period2": String(Int(Date().timeIntervalSince1970)), "interval": "1d",
+        ])
+        guard let root = obj as? [String: Any],
+              let chart = root["chart"] as? [String: Any],
+              let result = (chart["result"] as? [[String: Any]])?.first,
+              let m = result["meta"] as? [String: Any]
+        else { throw YahooError.malformed }
+        let (currency, scale) = normalise(currency: m["currency"] as? String ?? "USD")
+        let quote = ((result["indicators"] as? [String: Any])?["quote"] as? [[String: Any]])?.first ?? [:]
+        let closes = quote["close"] as? [Any] ?? []
+        let stamps = result["timestamp"] as? [Any] ?? []
+        var points: [ChartPoint] = []
+        for (i, stamp) in stamps.enumerated() where i < closes.count {
+            guard let t = stamp as? Double, let c = closes[i] as? Double, c > 0 else { continue }
+            points.append(ChartPoint(date: Date(timeIntervalSince1970: t), price: c * scale))
+        }
+        return DailyHistory(currency: currency, points: points)
+    }
+
     static func search(_ text: String) async throws -> [SearchResult] {
         let obj = try await json("/v1/finance/search", [
             "q": text, "quotesCount": "10", "newsCount": "0",

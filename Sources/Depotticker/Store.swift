@@ -158,29 +158,39 @@ final class Store: ObservableObject {
     // MARK: Import and export
 
     func exportCSV() -> String {
-        CSVCodec.export(portfolios) { [self] in priceEUR($0) }
+        CSVCodec.export(portfolios, priceEUR: { [self] in priceEUR($0) }, rateEUR: { [self] in fx[$0] })
     }
 
     /// Applies imported portfolios. Positions go into the portfolio with the same name; `replacing`
     /// drops everything first (the previous state is kept as a backup file).
     func apply(imported: [Portfolio], replacing: Bool) {
         repository.backup(portfolios)
-        if replacing {
-            portfolios = imported
-        } else {
-            for incoming in imported {
-                if let index = portfolios.firstIndex(where: { $0.name.caseInsensitiveCompare(incoming.name) == .orderedSame }) {
-                    portfolios[index].positions.append(contentsOf: incoming.positions)
-                } else {
-                    portfolios.append(incoming)
-                }
-            }
-        }
+        portfolios = PortfolioMerge.merge(imported, into: portfolios, replacing: replacing).portfolios
         if let selected = selectedPortfolioID, !portfolios.contains(where: { $0.id == selected }) {
             selectedPortfolioID = nil
         }
         save()
         Task { await refresh() }
+    }
+
+    /// Adds an estimated purchase date to every position that has a cost but no date. Returns how many.
+    @discardableResult
+    func estimatePurchaseDates(style: PurchaseEstimator.Style = .single) async -> Int {
+        let outcome = await PurchaseEstimator.fillMissingDates(in: portfolios, style: style)
+        guard outcome.estimated > 0 else { return 0 }
+        repository.backup(portfolios)
+        // Keep edits made while the estimate was running.
+        for portfolio in outcome.portfolios {
+            guard let p = portfolios.firstIndex(where: { $0.id == portfolio.id }) else { continue }
+            for position in portfolio.positions where !position.trades.isEmpty {
+                if let i = portfolios[p].positions.firstIndex(where: { $0.id == position.id }),
+                   portfolios[p].positions[i].needsPurchaseDate {
+                    portfolios[p].positions[i] = position
+                }
+            }
+        }
+        save()
+        return outcome.estimated
     }
 
     // MARK: Live data
@@ -196,7 +206,9 @@ final class Store: ObservableObject {
         guard !symbols.isEmpty else { return }
         await loadMissingMeta(for: symbols)
 
-        let currencies = Set(symbols.compactMap { meta[$0]?.currency }).subtracting(["EUR"])
+        // Listing currencies plus the currencies positions were bought in.
+        let currencies = Set(symbols.compactMap { meta[$0]?.currency })
+            .union(portfolios.flatMap(\.positions).map(\.currency)).subtracting(["EUR"])
         let fxSymbols = currencies.map { "\($0)EUR=X" }
         let all = symbols + fxSymbols
         let batches = stride(from: 0, to: all.count, by: Yahoo.batchSize).map {
@@ -394,11 +406,39 @@ final class Store: ObservableObject {
         return extended * m.scale
     }
 
-    func gain(_ holding: Holding) -> Double? { value(holding).map { $0 - holding.cost } }
+    /// Amount paid in EUR at today's exchange rates, over the lots whose purchase price is known.
+    func cost(_ holding: Holding) -> Double? {
+        var total = 0.0
+        var known = false
+        for lot in holding.lots where !lot.position.costUnknown {
+            guard let rate = fx[lot.position.currency] else { return nil }
+            total += lot.position.cost * rate
+            known = true
+        }
+        return known ? total : nil
+    }
+
+    /// Average purchase price per share in EUR.
+    func unitCost(_ holding: Holding) -> Double? {
+        guard let cost = cost(holding), holding.costedQuantity > 0 else { return nil }
+        return cost / holding.costedQuantity
+    }
+
+    /// Value minus cost of the shares whose purchase price is known. Bought in a foreign currency,
+    /// this is the broker's own gain converted at today's rate.
+    func gain(_ holding: Holding) -> Double? {
+        guard let price = priceEUR(holding.symbol), let cost = cost(holding) else { return nil }
+        return price * holding.costedQuantity - cost
+    }
 
     func gainPct(_ holding: Holding) -> Double? {
-        guard let gain = gain(holding), holding.cost > 0 else { return nil }
-        return gain / holding.cost * 100
+        guard let gain = gain(holding), let cost = cost(holding), cost > 0 else { return nil }
+        return gain / cost * 100
+    }
+
+    /// Profit already taken through recorded sales, in EUR at today's exchange rates.
+    func realized(_ holding: Holding) -> Double {
+        holding.lots.reduce(0) { $0 + $1.position.realized * (fx[$1.position.currency] ?? 0) }
     }
 
     func holdings(in portfolioID: UUID?) -> [Holding] {
@@ -434,7 +474,9 @@ final class Store: ObservableObject {
                 continue
             }
             totals.value += value
-            totals.cost += holding.cost
+            totals.cost += cost(holding) ?? 0
+            totals.gain += gain(holding) ?? 0
+            if holding.lots.contains(where: { $0.position.costUnknown }) { totals.uncosted += 1 }
             totals.day += dayChange(holding) ?? 0
         }
         return totals

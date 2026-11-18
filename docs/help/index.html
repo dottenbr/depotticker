@@ -70,7 +70,12 @@
 <ul>
 <li><strong>Export as CSV…</strong> saves all positions with current price, value and gain. The file opens in Excel and Numbers.</li>
 <li><strong>Open Import Template</strong> opens an example file you can fill in.</li>
-<li><strong>Import from CSV…</strong> reads a file with these columns: <code>Portfolio</code>, <code>Symbol</code>, <code>Name</code>, <code>Quantity</code>, <code>Average cost (EUR)</code>. Only Symbol and Quantity are required. You then choose whether to add the positions to what you have or replace everything. A backup of the previous state is kept in the app's data folder.</li>
+<li><strong>Import from CSV…</strong> reads a file with these columns: <code>Portfolio</code>, <code>Symbol</code>, <code>Name</code>, <code>Quantity</code>, <code>Average cost</code>, <code>Currency</code>. Only Symbol and Quantity are required; the currency is the one you paid in and defaults to EUR, and an empty average cost means the purchase price is unknown. You then choose whether to add or update the positions, or replace everything. A symbol already held in the portfolio of the same name is updated, not duplicated. A backup of the previous state is kept in the app's data folder.</li>
+<li><strong>Raymond James:</strong> the file from Client Access › Portfolio › Value › Export Data is recognised automatically. Its positions go into a portfolio named “Raymond James” with costs in US dollars. Positions for which Raymond James shows no amount invested are imported with an unknown purchase price: they count towards your value, but not towards gain and invested.</li>
+<li><strong>Several brokers and currencies:</strong> the same share can sit in several portfolios; its page lists each one. Costs stay in the currency you paid in. Totals are shown in euros, converting foreign costs at today's exchange rate, so the gain equals your broker's gain converted to euros.</li>
+<li><strong>Several purchases in a file:</strong> add the optional columns <code>Date</code> and <code>Type</code> (Buy or Sell) and write one row per purchase or sale; in such a row Quantity is the number of shares bought or sold and Average cost is the price paid or received. Rows for the same portfolio and symbol become one position. Dates can be written as 2026-03-31 or 31.03.2026. The template shows an example, and the export writes the same layout.</li>
+<li><strong>Estimating purchase dates:</strong> most brokers only report an average price. <em>Estimate Missing Purchase Dates</em> (same menu, also offered when importing) gives each purchase without a date the most recent day the share closed at your price, converted into the currency you paid in. For Raymond James the “Time Held” column narrows the search. Choose <em>Yearly Purchases over the Years</em> if you bought repeatedly: the app then assumes equal purchases once a year, going back as few years as it takes for the market prices to explain your average. These entries are marked as estimated and change no quantity or cost. It is a guess: a position built up over several purchases was partly bought earlier, so correct the entries where you know the real dates.</li>
+<li><strong>Purchases and sales:</strong> edit a position (pencil on the share's page) to record a purchase or sale with date and price. Shares and average cost are then calculated from these entries (a sale leaves the average cost of the remaining shares unchanged), and the realised gain is shown.</li>
 </ul>
 <p>Symbols are Yahoo Finance symbols, such as <code>AAPL</code>, <code>SAP.DE</code> or <code>VWCE.DE</code>. Both comma and semicolon separated files are understood, as are numbers written as <code>1.234,56</code> or <code>1,234.56</code>.</p>
 
@@ -101,6 +106,7 @@
 <tr><td><code>get_valuation</code></td><td>Live value, today's change and gain per position and in total.</td></tr>
 <tr><td><code>search_symbols</code></td><td>Finds the symbol for a company, fund or ISIN.</td></tr>
 <tr><td><code>create_portfolio</code></td><td>Adds an empty portfolio.</td></tr>
+<tr><td><code>add_transaction</code></td><td>Record a purchase or sale with date and price.</td></tr>
 <tr><td><code>add_position</code>, <code>update_position</code>, <code>remove_position</code></td><td>Change your positions. The open app shows the change within about 20 seconds.</td></tr>
 </table>
 

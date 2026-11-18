@@ -99,7 +99,7 @@ if [[ "$mode" == "release" ]]; then
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
   <channel>
     <title>Depotticker</title>
-    <link>https://dottenbr.github.io/depotticker/appcast.xml</link>
+    <link>https://depotticker.com/appcast.xml</link>
     <item>
       <title>Version $version</title>
       <pubDate>$(date -R)</pubDate>

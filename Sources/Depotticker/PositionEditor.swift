@@ -10,6 +10,13 @@ struct PositionEditor: View {
     @State private var quantity: Double?
     @State private var unitCost: Double?
     @State private var portfolioID: UUID?
+    @State private var currency = "EUR"
+    @State private var costUnknown = false
+    @State private var trades: [Trade] = []
+    @State private var tradeKind = Trade.Kind.buy
+    @State private var tradeDate = Date()
+    @State private var tradeQuantity: Double?
+    @State private var tradePrice: Double?
     @State private var query = ""
     @State private var results: [SearchResult] = []
     @State private var searching = false
@@ -21,7 +28,29 @@ struct PositionEditor: View {
     }
 
     private var canSave: Bool {
-        !symbol.isEmpty && (quantity ?? 0) > 0 && (unitCost ?? -1) >= 0 && portfolioID != nil
+        guard !symbol.isEmpty, portfolioID != nil else { return false }
+        if !trades.isEmpty { return true }
+        return (quantity ?? 0) > 0 && (costUnknown || (unitCost ?? -1) >= 0)
+    }
+
+    /// The position as it would be saved; shares and average cost follow the trades when there are any.
+    private var draft: Position {
+        Position(id: existing?.position.id ?? UUID(), symbol: symbol, name: name, quantity: quantity ?? 0,
+                 unitCost: costUnknown ? 0 : (unitCost ?? 0), currency: currency, costUnknown: costUnknown,
+                 trades: trades, timeHeld: existing?.position.timeHeld)
+    }
+
+    private var currencies: [String] {
+        var list = ["EUR", "USD", "GBP", "CHF"]
+        for extra in [store.meta[symbol]?.currency, currency] {
+            if let extra, !list.contains(extra) { list.append(extra) }
+        }
+        return list
+    }
+
+    private var canAddTrade: Bool {
+        guard let amount = tradeQuantity, amount > 0, (tradePrice ?? -1) >= 0 else { return false }
+        return tradeKind == .buy || amount <= draft.quantity + 1e-9
     }
 
     var body: some View {
@@ -42,11 +71,24 @@ struct PositionEditor: View {
                 Picker("Portfolio", selection: $portfolioID) {
                     ForEach(store.portfolios) { Text($0.name).tag(Optional($0.id)) }
                 }
-                TextField("Shares", value: $quantity, format: .number.precision(.fractionLength(0...4)))
-                TextField("Average cost per share (€)", value: $unitCost,
-                          format: .number.precision(.fractionLength(2...4)))
+                Picker("Bought in", selection: $currency) {
+                    ForEach(currencies, id: \.self) { Text($0).tag($0) }
+                }
+                if trades.isEmpty {
+                    TextField("Shares", value: $quantity, format: .number.precision(.fractionLength(0...4)))
+                    TextField("Average cost per share (\(currency))", value: $unitCost,
+                              format: .number.precision(.fractionLength(2...4)))
+                        .disabled(costUnknown)
+                    Toggle("Purchase price unknown", isOn: $costUnknown)
+                } else {
+                    LabeledContent("Shares", value: Fmt.quantity(draft.quantity))
+                    LabeledContent("Average cost", value: costUnknown ? "unknown" : Fmt.money(draft.unitCost, currency))
+                    LabeledContent("Realised gain", value: Fmt.signedMoney(draft.realized, currency))
+                }
             }
             .formStyle(.columns)
+
+            tradesSection
 
             HStack {
                 if existing != nil {
@@ -64,7 +106,7 @@ struct PositionEditor: View {
         }
         .padding(22)
         #if os(macOS)
-        .frame(width: 460)
+        .frame(width: 500)
         #else
         .frame(maxHeight: .infinity, alignment: .top)
         .presentationDetents([.large])
@@ -76,6 +118,102 @@ struct PositionEditor: View {
                 if let existing { store.delete(existing.position, from: existing.portfolioID) }
                 dismiss()
             }
+        }
+    }
+
+    /// Purchases and sales with date and price.
+    private var tradesSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Purchases and sales")
+                .font(.headline)
+            if trades.isEmpty {
+                Text("Optional. Record a purchase or sale with its date and price; shares and average cost are then calculated from these entries.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                ScrollView {
+                    VStack(spacing: 4) {
+                        ForEach(draft.orderedTrades) { trade in
+                            HStack(spacing: 8) {
+                                Text((trade.date.map { $0.formatted(date: .numeric, time: .omitted) } ?? "Date unknown")
+                                     + (trade.estimated == true ? " est." : ""))
+                                    .frame(width: 120, alignment: .leading)
+                                Text(trade.kind == .buy ? "Buy" : "Sell")
+                                    .foregroundStyle(trade.kind == .buy ? Color.primary : Color.orange)
+                                    .frame(width: 34, alignment: .leading)
+                                Text("\(Fmt.quantity(trade.quantity)) × \(Fmt.money(trade.price, currency))")
+                                Spacer()
+                                Button {
+                                    // Move the entry into the fields below to correct it.
+                                    tradeKind = trade.kind
+                                    tradeDate = trade.date ?? Date()
+                                    tradeQuantity = trade.quantity
+                                    tradePrice = trade.price
+                                    trades.removeAll { $0.id == trade.id }
+                                } label: {
+                                    Image(systemName: "pencil")
+                                }
+                                .buttonStyle(.borderless)
+                                .help("Correct this entry")
+                                Button {
+                                    removeTrade(trade)
+                                } label: {
+                                    Image(systemName: "minus.circle")
+                                }
+                                .buttonStyle(.borderless)
+                                .help("Remove this entry")
+                            }
+                            .font(.system(size: 12).monospacedDigit())
+                        }
+                    }
+                }
+                .frame(maxHeight: 120)
+            }
+            HStack(spacing: 8) {
+                Picker("", selection: $tradeKind) {
+                    Text("Buy").tag(Trade.Kind.buy)
+                    Text("Sell").tag(Trade.Kind.sell)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 110)
+                DatePicker("", selection: $tradeDate, in: ...Date(), displayedComponents: .date)
+                    .labelsHidden()
+                Spacer(minLength: 0)
+            }
+            HStack(spacing: 8) {
+                TextField("Shares", value: $tradeQuantity, format: .number.precision(.fractionLength(0...4)))
+                TextField("Price (\(currency))", value: $tradePrice, format: .number.precision(.fractionLength(2...4)))
+                Button("Add") { addTrade() }
+                    .buttonStyle(.glass)
+                    .disabled(!canAddTrade)
+            }
+            .textFieldStyle(.roundedBorder)
+        }
+    }
+
+    private func addTrade() {
+        guard let amount = tradeQuantity, let price = tradePrice else { return }
+        var position = draft
+        position.record(Trade(kind: tradeKind, day: Trade.dayFormatter.string(from: tradeDate), quantity: amount, price: price))
+        trades = position.trades
+        tradeQuantity = nil
+        tradePrice = nil
+    }
+
+    private func removeTrade(_ trade: Trade) {
+        // Keep what is held when the last entry goes away.
+        var position = draft
+        position.trades.removeAll { $0.id == trade.id }
+        if let summary = position.tradeSummary {
+            trades = position.trades
+            quantity = summary.quantity
+            unitCost = summary.unitCost
+        } else {
+            quantity = draft.quantity
+            unitCost = draft.unitCost
+            trades = []
         }
     }
 
@@ -138,7 +276,10 @@ struct PositionEditor: View {
             symbol = existing.position.symbol
             name = existing.position.name
             quantity = existing.position.quantity
-            unitCost = existing.position.unitCost
+            unitCost = existing.position.costUnknown ? nil : existing.position.unitCost
+            currency = existing.position.currency
+            costUnknown = existing.position.costUnknown
+            trades = existing.position.trades
             portfolioID = existing.portfolioID
         } else {
             portfolioID = store.selectedPortfolioID ?? store.portfolios.first?.id
@@ -161,14 +302,11 @@ struct PositionEditor: View {
     }
 
     private func save() {
-        guard let quantity, let unitCost, let portfolioID else { return }
+        guard let portfolioID, canSave else { return }
         if let existing {
-            var position = existing.position
-            position.quantity = quantity
-            position.unitCost = unitCost
-            store.update(position, in: existing.portfolioID, movingTo: portfolioID)
+            store.update(draft, in: existing.portfolioID, movingTo: portfolioID)
         } else {
-            store.add(Position(symbol: symbol, name: name, quantity: quantity, unitCost: unitCost), to: portfolioID)
+            store.add(draft, to: portfolioID)
             store.selectedSymbol = symbol
         }
         dismiss()

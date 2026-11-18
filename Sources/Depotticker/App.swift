@@ -7,6 +7,10 @@ enum Launcher {
         #if os(macOS)
         // `Depotticker --mcp` runs the Model Context Protocol server instead of the app.
         if CommandLine.arguments.contains("--mcp") { MCPServer.runBlocking() }
+        // `Depotticker --import file.csv` imports a CSV (own layout or a supported broker export).
+        if let index = CommandLine.arguments.firstIndex(of: "--import") {
+            CommandLineImport.run(Array(CommandLine.arguments.dropFirst(index + 1)))
+        }
         #endif
         DepottickerApp.main()
     }
@@ -80,6 +84,7 @@ struct ContentView: View {
     @State private var showImporter = false
     @State private var pendingImport: [Portfolio]?
     @State private var importError: String?
+    @State private var notice: String?
 
     private var isPhone: Bool {
         #if os(iOS)
@@ -112,11 +117,17 @@ struct ContentView: View {
         .confirmationDialog(importTitle, isPresented: Binding(get: { pendingImport != nil },
                                                                set: { if !$0 { pendingImport = nil } }),
                             titleVisibility: .visible) {
-            Button("Add to Existing Positions") { finishImport(replacing: false) }
+            Button("Add or Update Positions") { finishImport(replacing: false) }
+            Button("Add or Update, and Estimate Purchase Dates") { finishImport(replacing: false, estimate: true) }
             Button("Replace All Positions", role: .destructive) { finishImport(replacing: true) }
             Button("Cancel", role: .cancel) { pendingImport = nil }
         } message: {
-            Text("Replacing removes every current portfolio first. A backup of the current state is kept either way.")
+            Text("Replacing removes every current portfolio first. A backup of the current state is kept either way. Estimating gives positions without a purchase date the most recent day their share traded at your average price.")
+        }
+        .alert("Purchase dates", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(notice ?? "")
         }
         .alert("Import failed", isPresented: Binding(get: { importError != nil }, set: { if !$0 { importError = nil } })) {
             Button("OK", role: .cancel) {}
@@ -187,6 +198,10 @@ struct ContentView: View {
                 }
                 Button("Import from CSV…", systemImage: "square.and.arrow.down") { showImporter = true }
                 Button("Open Import Template", systemImage: "tablecells") { openTemplate() }
+                Menu("Estimate Missing Purchase Dates", systemImage: "calendar.badge.clock") {
+                    Button("One Purchase per Position") { estimateDates(.single) }
+                    Button("Yearly Purchases over the Years") { estimateDates(.yearly) }
+                }
                 Divider()
                 Button("Help", systemImage: "questionmark.circle") {
                     openURL(Links.help)
@@ -219,18 +234,26 @@ struct ContentView: View {
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             let data = try Data(contentsOf: url)
-            // Excel on Windows saves CSV as Latin-1 rather than UTF-8.
-            let text = String(data: data, encoding: .utf8) ?? (String(data: data, encoding: .isoLatin1) ?? "")
-            pendingImport = try CSVCodec.parse(text)
+            pendingImport = try CSVCodec.parse(CSVCodec.text(from: data))
         } catch {
             importError = error.localizedDescription
         }
     }
 
-    private func finishImport(replacing: Bool) {
+    private func finishImport(replacing: Bool, estimate: Bool = false) {
         guard let imported = pendingImport else { return }
         pendingImport = nil
         store.apply(imported: imported, replacing: replacing)
+        if estimate { estimateDates() }
+    }
+
+    private func estimateDates(_ style: PurchaseEstimator.Style = .single) {
+        Task {
+            let count = await store.estimatePurchaseDates(style: style)
+            notice = count == 0
+                ? "Every position with a known purchase price already has a purchase date."
+                : "Estimated the purchases of \(count) position\(count == 1 ? "" : "s") from your average prices. Quantities and costs are unchanged. The entries are marked as estimated; correct them on the share's page where you know better."
+        }
     }
 
     /// On the Mac the template opens straight in Excel or Numbers; elsewhere it is saved first.
@@ -250,3 +273,52 @@ struct ContentView: View {
         #endif
     }
 }
+
+#if os(macOS)
+/// `Depotticker --import <file.csv> [--estimate]`, or `Depotticker --import --estimate` to only estimate.
+enum CommandLineImport {
+    static func run(_ arguments: [String]) -> Never {
+        // --estimate [single|yearly] [--portfolio NAME] [--before YYYY-MM-DD]
+        func value(_ flag: String) -> String? {
+            arguments.firstIndex(of: flag).flatMap { $0 + 1 < arguments.count ? arguments[$0 + 1] : nil }
+        }
+        let estimate = arguments.contains("--estimate")
+        let style = value("--estimate").flatMap(PurchaseEstimator.Style.init) ?? .single
+        let only = value("--portfolio")
+        let before = value("--before").flatMap(Trade.dayFormatter.date(from:))
+        let path = arguments.first { $0.lowercased().hasSuffix(".csv") || $0.lowercased().hasSuffix(".txt") }
+        guard path != nil || estimate else {
+            print("Usage: Depotticker --import <file.csv> [--estimate]")
+            exit(2)
+        }
+        let repository = PortfolioRepository()
+        var portfolios = repository.load()
+        repository.backup(portfolios)
+        if let path {
+            do {
+                let data = try Data(contentsOf: URL(fileURLWithPath: path))
+                let imported = try CSVCodec.parse(CSVCodec.text(from: data))
+                let outcome = PortfolioMerge.merge(imported, into: portfolios, replacing: false)
+                portfolios = outcome.portfolios
+                let names = imported.map(\.name).joined(separator: ", ")
+                print("Imported into \(names): \(outcome.added) added, \(outcome.updated) updated, \(outcome.kept) kept (have recorded purchases).")
+            } catch {
+                print("Import failed: \(error.localizedDescription)")
+                exit(1)
+            }
+        }
+        guard estimate else {
+            repository.save(portfolios)
+            exit(0)
+        }
+        let start = portfolios
+        Task.detached {
+            let outcome = await PurchaseEstimator.fillMissingDates(in: start, style: style, portfolio: only, before: before)
+            repository.save(outcome.portfolios)
+            print("Estimated the purchase date of \(outcome.estimated) position(s).")
+            exit(0)
+        }
+        dispatchMain()
+    }
+}
+#endif

@@ -26,6 +26,7 @@ header.site nav a { color: var(--muted); margin-left: 22px; font-size: 15px; }
 .note { color: var(--muted); font-size: 14px; margin-top: 14px; }
 .shots { display: flex; gap: 20px; justify-content: center; align-items: flex-end; padding: 36px 0 8px; }
 .shots img { border-radius: var(--radius); border: 1px solid var(--line); box-shadow: 0 24px 60px rgba(0,0,0,.35); height: auto; }
+.shots .mac { width: min(100%, 900px); }
 .shots .pad { width: min(62%, 600px); }
 .shots .phone { width: min(26%, 250px); }
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; padding: 40px 0; }
