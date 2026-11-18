@@ -271,11 +271,41 @@ final class SourceTests: XCTestCase {
         XCTAssertEqual(state.last["DETR"]?["DE0007164600"]?.price, 201.3)
         XCTAssertEqual(state.late["DETR"]?["DE0007164600"]?.price, 202)
         XCTAssertEqual(state.bars["DETR"]?["DE0007164600"]?.count, 2)
+        // The minute files of the 17th were read from the last trade to the end of trading.
+        state.readBefore = .init(day: "2026-11-17", read: ["DETR": Set((16 * 60 + 35)...DeutscheBoerse.lastMinute)])
         DeutscheBoerse.apply(DeutscheBoerse.parse(line: rows[3], wanted: wanted, venue: .xetra)!, venue: .xetra, to: &state)
         XCTAssertEqual(state.previous["DETR"]?["DE0007164600"], 201.3)
         XCTAssertEqual(state.history["DETR"]?["DE0007164600"]?["2026-11-17"], 201.3)
         XCTAssertEqual(state.last["DETR"]?["DE0007164600"]?.price, 203.5)
         XCTAssertEqual(state.bars["DETR"]?["DE0007164600"]?.count, 1)
+    }
+
+    func testAHalfReadDayIsNotRecordedAsACloseUntilItsDailyFileConfirmsIt() {
+        let isin = "DE0007164600"
+        func trade(_ stamp: String, _ price: Double) -> DeutscheBoerse.Trade {
+            .init(isin: isin, price: price, currency: "EUR", quantity: 1, time: DeutscheBoerse.date(stamp)!, regular: true)
+        }
+        var state = DeutscheBoerse.State()
+        // The app was closed at noon on the 17th and opened again on the 18th.
+        DeutscheBoerse.apply(trade("2026-11-17T11:00:00Z", 199), venue: .xetra, to: &state)
+        state.readBefore = .init(day: "2026-11-17", read: ["DETR": Set(360...(11 * 60 + 5))])
+        DeutscheBoerse.apply(trade("2026-11-18T08:05:00Z", 203.5), venue: .xetra, to: &state)
+        // The noon price is the best previous price known so far, but it is no closing price.
+        XCTAssertEqual(state.previous["DETR"]?[isin], 199)
+        XCTAssertNil(state.history["DETR"]?[isin]?["2026-11-17"])
+
+        // The complete file of the 17th arrives after today's trades.
+        DeutscheBoerse.confirm(day: "2026-11-17", trades: [trade("2026-11-17T16:35:10Z", 201.3), trade("2026-11-17T11:00:00Z", 199)],
+                               venue: .xetra, in: &state)
+        XCTAssertEqual(state.previous["DETR"]?[isin], 201.3)
+        XCTAssertEqual(state.history["DETR"]?[isin]?["2026-11-17"], 201.3)
+        XCTAssertEqual(state.last["DETR"]?[isin]?.price, 203.5)
+    }
+
+    func testStateFilesOfEarlierVersionsStillLoad() throws {
+        var old = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(DeutscheBoerse.State())) as? [String: Any])
+        old["readBefore"] = nil
+        XCTAssertNoThrow(try JSONDecoder().decode(DeutscheBoerse.State.self, from: JSONSerialization.data(withJSONObject: old)))
     }
 
     func testGzipLinesAreInflatedInPieces() throws {

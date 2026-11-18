@@ -62,6 +62,13 @@ enum DeutscheBoerse {
         /// Closing prices collected so far, per venue, ISIN and day.
         var history: [String: [String: [String: Double]]] = [:]
         var currency: [String: String] = [:]
+        /// The minutes read on the day before `readDay`, kept to tell whether that day was read to its end.
+        var readBefore: ReadLog?
+    }
+
+    struct ReadLog: Codable {
+        var day: String
+        var read: [String: Set<Int>]
     }
 
     // MARK: Parsing
@@ -117,7 +124,10 @@ enum DeutscheBoerse {
             // A new trading day: yesterday's last prices become the previous closes.
             for (isin, print) in state.last[v] ?? [:] {
                 state.previous[v, default: [:]][isin] = print.price
-                if !current.isEmpty { state.history[v, default: [:]][isin, default: [:]][current] = print.price }
+                // Only a day read to its end goes on record as a close; otherwise its daily file settles it.
+                if isClose(print, of: current, venue: v, in: state) {
+                    state.history[v, default: [:]][isin, default: [:]][current] = print.price
+                }
             }
             state.last[v] = [:]
             state.late[v] = [:]
@@ -149,6 +159,43 @@ enum DeutscheBoerse {
             bars.sort { $0.date < $1.date }
         }
         state.bars[v, default: [:]][trade.isin] = bars
+    }
+
+    /// Evening minute (UTC) by which all three venues have stopped trading, summer and winter.
+    static let lastMinute = 21 * 60
+
+    /// Whether the last trade known for a finished day is that day's closing price: either the day's
+    /// complete file was read, or every minute file from the trade to the end of trading was.
+    private static func isClose(_ print: Print, of day: String, venue v: String, in state: State) -> Bool {
+        guard !day.isEmpty else { return false }
+        if state.daily[v] == day { return true }
+        let read: Set<Int>
+        if state.readDay == day {
+            read = state.read[v] ?? []
+        } else if let before = state.readBefore, before.day == day {
+            read = before.read[v] ?? []
+        } else {
+            return false
+        }
+        let minute = Int(print.time.truncatingRemainder(dividingBy: 86_400)) / 60
+        return minute > lastMinute || (minute...lastMinute).allSatisfy(read.contains)
+    }
+
+    /// Applies the complete file of a day that the stored state has already moved past (the file was
+    /// published or downloaded only after the next day's first trades). Its closing prices replace
+    /// whatever the minute files had left for that day.
+    static func confirm(day closed: String, trades: [Trade], venue: Venue, in state: inout State) {
+        let v = venue.rawValue
+        var closes: [String: Print] = [:]
+        for trade in trades where trade.regular && day(trade.time) == closed {
+            let stamp = trade.time.timeIntervalSince1970
+            if stamp >= closes[trade.isin]?.time ?? 0 { closes[trade.isin] = Print(price: trade.price, time: stamp) }
+        }
+        for (isin, close) in closes {
+            let later = state.history[v]?[isin]?.keys.contains { $0 > closed } ?? false
+            if !later { state.previous[v, default: [:]][isin] = close.price }
+            state.history[v, default: [:]][isin, default: [:]][closed] = close.price
+        }
     }
 
     // MARK: Gzip
@@ -348,6 +395,7 @@ enum DeutscheBoerse {
             let now = Date()
             let today = DeutscheBoerse.day(now)
             if state.readDay != today {
+                state.readBefore = ReadLog(day: state.readDay, read: state.read)
                 state.readDay = today
                 state.read = [:]
             }
@@ -356,14 +404,16 @@ enum DeutscheBoerse {
             // Daily files of earlier days give the previous closes. One index and one file per venue.
             for venue in venues where state.daily[venue.rawValue] == nil || (state.daily[venue.rawValue] ?? "") < DeutscheBoerse.day(now.addingTimeInterval(-86_400)) {
                 let v = venue.rawValue
-                guard dailyChecked[v] != today else { continue }
+                // Yesterday's file may not be out yet just after midnight, and there is none after a
+                // day without trading: look again now and then, not in every round.
+                if let checked = dailyChecked[v], now.timeIntervalSince(checked) < 1_800 { continue }
                 await DeutscheBoerse.pace.wait()
                 budget -= 1
                 guard let listed = await DeutscheBoerse.index(venue) else {
                     DeutscheBoerse.log("\(v): index failed")
                     continue
                 }
-                dailyChecked[v] = today
+                dailyChecked[v] = now
                 for file in listed.filter({ $0.contains("-daily-") }).sorted() {
                     let date = String(file.dropFirst("\(venue.prefix)-daily-".count).prefix(10))
                     guard date < today, date > state.daily[v] ?? "" else { continue }
@@ -375,14 +425,19 @@ enum DeutscheBoerse {
                         continue
                     }
                     DeutscheBoerse.log("\(v): daily \(file) trades \(trades.count)")
-                    if state.day[v] == date {
-                        // The daily file holds the whole day; drop what the minute files gave so nothing counts twice.
-                        state.last[v] = [:]
-                        state.late[v] = [:]
-                        state.volume[v] = [:]
-                        state.bars[v] = [:]
+                    if (state.day[v] ?? "") > date {
+                        // Today's trades were read first: only the closes of the finished day are taken.
+                        DeutscheBoerse.confirm(day: date, trades: trades, venue: venue, in: &state)
+                    } else {
+                        if state.day[v] == date {
+                            // The daily file holds the whole day; drop what the minute files gave so nothing counts twice.
+                            state.last[v] = [:]
+                            state.late[v] = [:]
+                            state.volume[v] = [:]
+                            state.bars[v] = [:]
+                        }
+                        for trade in trades.sorted(by: { $0.time < $1.time }) { DeutscheBoerse.apply(trade, venue: venue, to: &state) }
                     }
-                    for trade in trades.sorted(by: { $0.time < $1.time }) { DeutscheBoerse.apply(trade, venue: venue, to: &state) }
                     state.daily[v] = date
                 }
                 if state.daily[v] == nil { state.daily[v] = "" }
@@ -428,7 +483,7 @@ enum DeutscheBoerse {
             save()
         }
 
-        private var dailyChecked: [String: String] = [:]
+        private var dailyChecked: [String: Date] = [:]
         private(set) var backlog = 0
     }
 
