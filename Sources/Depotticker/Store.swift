@@ -454,36 +454,16 @@ final class Store: ObservableObject {
         saveMeta()
     }
 
-    // MARK: Derived values (all in EUR)
+    // MARK: Derived values (all in EUR, see `Valuation`)
 
-    private func rate(_ symbol: String) -> Double? {
-        guard let m = meta[symbol], let fxRate = fx[m.currency] else { return nil }
-        return fxRate * m.scale
-    }
+    private var valuation: Valuation { Valuation(quotes: quotes, meta: meta, fx: fx, fxPrevious: fxPrevious) }
 
-    func priceEUR(_ symbol: String) -> Double? {
-        guard let quote = quotes[symbol], let rate = rate(symbol) else { return nil }
-        return quote.price * rate
-    }
+    func priceEUR(_ symbol: String) -> Double? { valuation.price(symbol) }
 
     /// Price in the listing's own currency.
     func nativePrice(_ symbol: String) -> Double? {
         guard let quote = quotes[symbol], let m = meta[symbol] else { return nil }
         return quote.price * m.scale
-    }
-
-    func dayPct(_ symbol: String) -> Double? { quotes[symbol]?.changePct }
-
-    func value(_ holding: Holding) -> Double? {
-        priceEUR(holding.symbol).map { $0 * holding.quantity }
-    }
-
-    /// Today's change in EUR: value now minus value at the previous close, each at its own exchange rate.
-    func dayChange(_ holding: Holding) -> Double? {
-        guard let quote = quotes[holding.symbol], let m = meta[holding.symbol],
-              let rate = fx[m.currency], let previousRate = fxPrevious[m.currency] ?? fx[m.currency]
-        else { return nil }
-        return (quote.price * rate - quote.previousClose * previousRate) * m.scale * holding.quantity
     }
 
     /// Pre-market or after-hours price in the listing's currency, if any.
@@ -492,65 +472,19 @@ final class Store: ObservableObject {
         return extended * m.scale
     }
 
-    /// Amount paid in EUR at today's exchange rates, over the lots whose purchase price is known.
-    func cost(_ holding: Holding) -> Double? {
-        var total = 0.0
-        var known = false
-        for lot in holding.lots where !lot.position.costUnknown {
-            guard let rate = fx[lot.position.currency] else { return nil }
-            total += lot.position.cost * rate
-            known = true
-        }
-        return known ? total : nil
-    }
-
-    /// Average purchase price per share in EUR.
-    func unitCost(_ holding: Holding) -> Double? {
-        guard let cost = cost(holding), holding.costedQuantity > 0 else { return nil }
-        return cost / holding.costedQuantity
-    }
-
-    /// Value minus cost of the shares whose purchase price is known. Bought in a foreign currency,
-    /// this is the broker's own gain converted at today's rate.
-    func gain(_ holding: Holding) -> Double? {
-        guard let price = priceEUR(holding.symbol), let cost = cost(holding) else { return nil }
-        return price * holding.costedQuantity - cost
-    }
-
-    func gainPct(_ holding: Holding) -> Double? {
-        guard let gain = gain(holding), let cost = cost(holding), cost > 0 else { return nil }
-        return gain / cost * 100
-    }
-
-    /// Profit already taken through recorded sales, in EUR at today's exchange rates. Nil when it
-    /// cannot be stated: a sale out of shares of unknown cost, or a missing exchange rate.
-    func realized(_ holding: Holding) -> Double? {
-        var total = 0.0
-        for lot in holding.lots where lot.position.hasSales {
-            guard let realized = lot.position.realized, let rate = fx[lot.position.currency] else { return nil }
-            total += realized * rate
-        }
-        return total
-    }
+    func dayPct(_ symbol: String) -> Double? { quotes[symbol]?.changePct }
+    func value(_ holding: Holding) -> Double? { valuation.value(holding) }
+    func dayChange(_ holding: Holding) -> Double? { valuation.dayChange(holding) }
+    func cost(_ holding: Holding) -> Double? { valuation.cost(holding) }
+    func unitCost(_ holding: Holding) -> Double? { valuation.unitCost(holding) }
+    func gain(_ holding: Holding) -> Double? { valuation.gain(holding) }
+    func gainPct(_ holding: Holding) -> Double? { valuation.gainPct(holding) }
+    func realized(_ holding: Holding) -> Double? { valuation.realized(holding) }
 
     func holdings(in portfolioID: UUID?) -> [Holding] {
-        var order: [String] = []
-        var bySymbol: [String: Holding] = [:]
-        for portfolio in portfolios where portfolioID == nil || portfolio.id == portfolioID {
-            for position in portfolio.positions {
-                let lot = Holding.Lot(portfolioID: portfolio.id, portfolioName: portfolio.name, position: position)
-                if bySymbol[position.symbol] == nil {
-                    order.append(position.symbol)
-                    // A source that could not name the listing reports the symbol; the name on record is better.
-                    let known = meta[position.symbol]?.name
-                    let name = known.flatMap { $0 == position.symbol ? nil : $0 } ?? position.name
-                    bySymbol[position.symbol] = Holding(symbol: position.symbol, name: name, lots: [lot])
-                } else {
-                    bySymbol[position.symbol]?.lots.append(lot)
-                }
-            }
-        }
-        return order.compactMap { bySymbol[$0] }
+        // A source that could not name the listing reports the symbol; the name on record is better.
+        let names = meta.compactMapValues { $0.name == $0.symbol ? nil : $0.name }
+        return Holding.group(portfolios.filter { portfolioID == nil || $0.id == portfolioID }, names: names)
     }
 
     var visibleHoldings: [Holding] { holdings(in: selectedPortfolioID) }
@@ -559,22 +493,7 @@ final class Store: ObservableObject {
         visibleHoldings.first { $0.symbol == symbol } ?? holdings(in: nil).first { $0.symbol == symbol }
     }
 
-    func totals(in portfolioID: UUID?) -> Totals {
-        var totals = Totals()
-        for holding in holdings(in: portfolioID) {
-            totals.count += 1
-            guard let value = value(holding) else {
-                totals.missing += 1
-                continue
-            }
-            totals.value += value
-            totals.cost += cost(holding) ?? 0
-            totals.gain += gain(holding) ?? 0
-            if holding.lots.contains(where: { $0.position.costUnknown }) { totals.uncosted += 1 }
-            totals.day += dayChange(holding) ?? 0
-        }
-        return totals
-    }
+    func totals(in portfolioID: UUID?) -> Totals { valuation.totals(holdings(in: portfolioID)) }
 
     var visibleTotals: Totals { totals(in: selectedPortfolioID) }
 

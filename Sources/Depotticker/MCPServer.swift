@@ -306,49 +306,41 @@ enum MCPServer {
             fxPrevious[currency] = rate.previous
         }
 
-        var total = 0.0, totalCost = 0.0, totalGain = 0.0, totalDay = 0.0
+        let valuation = Valuation(quotes: quotes, meta: meta, fx: fx, fxPrevious: fxPrevious)
         var output: [[String: Any]] = []
         for portfolio in portfolios {
-            var value = 0.0, day = 0.0
             var rows: [[String: Any]] = []
             for position in portfolio.positions {
                 var row = describe(position)
                 row["transactions"] = nil
-                if let quote = quotes[position.symbol], let m = meta[position.symbol], let rate = fx[m.currency] {
-                    let price = quote.price * rate * m.scale
-                    let positionValue = price * position.quantity
-                    let positionDay = (quote.price * rate - quote.previousClose * (fxPrevious[m.currency] ?? rate))
-                        * m.scale * position.quantity
+                let holding = Holding(position, in: portfolio)
+                if let price = valuation.price(position.symbol), let value = valuation.value(holding),
+                   let quote = quotes[position.symbol], let m = meta[position.symbol] {
                     row["price_eur"] = round2(price)
-                    row["value_eur"] = round2(positionValue)
-                    row["today_change_eur"] = round2(positionDay)
+                    row["value_eur"] = round2(value)
+                    row["today_change_eur"] = round2(valuation.dayChange(holding) ?? 0)
                     row["today_change_pct"] = round2(quote.changePct)
                     row["price_native"] = round2(quote.price * m.scale)
                     row["price_currency"] = m.currency
-                    if !position.costUnknown, let costRate = fx[position.currency] {
-                        let cost = position.cost * costRate
+                    if let cost = valuation.cost(holding), let gain = valuation.gain(holding) {
                         row["invested_eur"] = round2(cost)
-                        row["gain_eur"] = round2(positionValue - cost)
-                        row["gain_pct"] = cost > 0 ? round2((positionValue / cost - 1) * 100) : 0
-                        totalCost += cost
-                        totalGain += positionValue - cost
+                        row["gain_eur"] = round2(gain)
+                        row["gain_pct"] = round2(valuation.gainPct(holding) ?? 0)
                     } else {
                         row["note"] = "purchase price unknown; not included in gain and invested"
                     }
-                    value += positionValue
-                    day += positionDay
                 } else {
                     row["note"] = "no live price available"
                 }
                 rows.append(row)
             }
-            total += value
-            totalDay += day
-            output.append(["name": portfolio.name, "value_eur": round2(value), "today_change_eur": round2(day),
+            let sums = valuation.totals(Holding.group([portfolio]))
+            output.append(["name": portfolio.name, "value_eur": round2(sums.value), "today_change_eur": round2(sums.day),
                            "positions": rows])
         }
-        return ["currency": "EUR", "total_value_eur": round2(total), "today_change_eur": round2(totalDay),
-                "total_gain_eur": round2(totalGain), "invested_eur": round2(totalCost),
+        let all = valuation.totals(Holding.group(portfolios))
+        return ["currency": "EUR", "total_value_eur": round2(all.value), "today_change_eur": round2(all.day),
+                "total_gain_eur": round2(all.gain), "invested_eur": round2(all.cost),
                 "exchange_rates_eur": fx,
                 "portfolios": output]
     }

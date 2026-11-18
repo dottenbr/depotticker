@@ -49,7 +49,7 @@ appex="$app/Contents/PlugIns/DepottickerWidget.appex"
 mkdir -p "$appex/Contents/MacOS"
 swiftc -O -D DIRECT -target arm64-apple-macos26.0 -swift-version 5 -parse-as-library -application-extension \
   -module-name DepottickerWidget -Xlinker -e -Xlinker _NSExtensionMain \
-  Sources/Depotticker/Models.swift Sources/Depotticker/Yahoo.swift Sources/Depotticker/Format.swift \
+  Sources/Depotticker/Models.swift Sources/Depotticker/Valuation.swift Sources/Depotticker/Yahoo.swift Sources/Depotticker/Format.swift \
   Sources/Depotticker/MarketData.swift Sources/Depotticker/Supplement.swift Sources/Depotticker/EODHD.swift Sources/Depotticker/ECB.swift \
   Sources/Depotticker/DeutscheBoerse.swift Sources/Depotticker/Instruments.swift \
   Widget/DepotWidget.swift -o "$appex/Contents/MacOS/DepottickerWidget"

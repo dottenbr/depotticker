@@ -54,6 +54,7 @@ targets:
     sources:
       - path: Widget/DepotWidget.swift
       - path: Sources/Depotticker/Models.swift
+      - path: Sources/Depotticker/Valuation.swift
       - path: Sources/Depotticker/MarketData.swift
       - path: Sources/Depotticker/Supplement.swift
       - path: Sources/Depotticker/EODHD.swift
