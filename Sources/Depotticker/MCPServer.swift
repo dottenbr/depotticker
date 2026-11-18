@@ -135,7 +135,11 @@ enum MCPServer {
         return true
     }
 
-    private static func call(_ name: String, _ arguments: [String: Any]) async throws -> String {
+    /// Confirms that a symbol exists at the price source and names it. Tests replace it.
+    static var lookUp: (String) async -> SymbolMeta? = { try? await MarketData.chart($0, range: .day).meta }
+
+    /// Runs one tool against the portfolio file and returns its text answer.
+    static func call(_ name: String, _ arguments: [String: Any]) async throws -> String {
         let repository = PortfolioRepository()
         MarketData.configure(directory: repository.directory)
         // This process ends after its answer, so it waits for the exchange files instead of reading them in the background.
@@ -196,6 +200,10 @@ enum MCPServer {
         case "add_position":
             let index = try portfolioIndex()
             let symbol = try text("symbol").uppercased()
+            // The other tools address a position by its symbol, so a portfolio holds each symbol once.
+            guard !portfolios[index].positions.contains(where: { $0.symbol.uppercased() == symbol }) else {
+                throw ToolError(message: "\(portfolios[index].name) already holds \(symbol). Record a purchase with add_transaction, or change it with update_position.")
+            }
             guard let quantity = arguments["quantity"] as? Double, quantity > 0 else {
                 throw ToolError(message: "“quantity” must be a positive number.")
             }
@@ -204,7 +212,7 @@ enum MCPServer {
             }
             let currency = try currencyArgument() ?? "EUR"
             // Looking the symbol up also rejects symbols that do not exist.
-            guard let meta = try? await MarketData.chart(symbol, range: .day).meta else {
+            guard let meta = await lookUp(symbol) else {
                 throw ToolError(message: "“\(symbol)” is not a known symbol. Use search_symbols to find it.")
             }
             let display = (arguments["name"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? meta.name
@@ -264,7 +272,7 @@ enum MCPServer {
                 portfolios[index].positions[existing] = position
             } else {
                 guard kind == .buy else { throw ToolError(message: "\(portfolios[index].name) has no position in \(symbol) to sell.") }
-                guard let meta = try? await MarketData.chart(symbol, range: .day).meta else {
+                guard let meta = await lookUp(symbol) else {
                     throw ToolError(message: "“\(symbol)” is not a known symbol. Use search_symbols to find it.")
                 }
                 portfolios[index].positions.append(Position(symbol: symbol, name: meta.name, quantity: 0, unitCost: 0,
