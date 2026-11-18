@@ -25,11 +25,9 @@ struct DepotEntry: TimelineEntry, Codable {
     var portfolios: [WidgetPortfolio]
     var movers: [WidgetMover]
 
-    var dayPct: Double {
-        let start = value - day
-        return start > 0 ? day / start * 100 : 0
-    }
-    var gainPct: Double { cost > 0 ? gain / cost * 100 : 0 }
+    private var totals: Totals { Totals(value: value, cost: cost, gain: gain, day: day) }
+    var dayPct: Double { totals.dayPct }
+    var gainPct: Double { totals.gainPct }
 
     static let placeholder = DepotEntry(
         date: Date(), value: 125_480, cost: 98_000, gain: 27_480, day: 842,
@@ -66,9 +64,9 @@ enum WidgetData {
     }
 
     static func load() async -> DepotEntry? {
+        MarketData.configure(directory: directory)
         guard let fileData = try? Data(contentsOf: directory.appendingPathComponent("portfolios.json")),
               let file = try? JSONDecoder().decode(PortfolioFile.self, from: fileData),
-              MarketData.configure(directory: directory) || true,
               let metaData = try? Data(contentsOf: directory.appendingPathComponent(MarketData.metaFileName)),
               let meta = try? JSONDecoder().decode([String: SymbolMeta].self, from: metaData)
         else { return cached }
@@ -78,7 +76,6 @@ enum WidgetData {
         guard !symbols.isEmpty else { return cached }
         let currencies = Set(symbols.compactMap { meta[$0]?.currency })
             .union(file.portfolios.flatMap(\.positions).map(\.currency)).subtracting(["EUR"])
-        MarketData.configure(directory: directory)
         guard let quotes = try? await MarketData.quotes(symbols), !quotes.isEmpty else { return cached }
 
         var fx: [String: Double] = ["EUR": 1]
@@ -88,26 +85,13 @@ enum WidgetData {
             fxPrevious[currency] = rate.previous
         }
 
-        var entry = DepotEntry(date: Date(), value: 0, cost: 0, gain: 0, day: 0, portfolios: [], movers: [])
-        for portfolio in file.portfolios {
-            var summary = WidgetPortfolio(name: portfolio.name, value: 0, day: 0, dayPct: 0)
-            for position in portfolio.positions {
-                guard let quote = quotes[position.symbol], let m = meta[position.symbol],
-                      let rate = fx[m.currency]
-                else { continue }
-                let factor = m.scale * position.quantity
-                summary.value += quote.price * rate * factor
-                summary.day += (quote.price * rate - quote.previousClose * (fxPrevious[m.currency] ?? rate)) * factor
-                if !position.costUnknown, let costRate = fx[position.currency] {
-                    entry.cost += position.cost * costRate
-                    entry.gain += quote.price * rate * factor - position.cost * costRate
-                }
-            }
-            let start = summary.value - summary.day
-            summary.dayPct = start > 0 ? summary.day / start * 100 : 0
-            entry.value += summary.value
-            entry.day += summary.day
-            entry.portfolios.append(summary)
+        let valuation = Valuation(quotes: quotes, meta: meta, fx: fx, fxPrevious: fxPrevious)
+        let all = valuation.totals(Holding.group(file.portfolios))
+        var entry = DepotEntry(date: Date(), value: all.value, cost: all.cost, gain: all.gain, day: all.day,
+                               portfolios: [], movers: [])
+        entry.portfolios = file.portfolios.map { portfolio in
+            let sums = valuation.totals(Holding.group([portfolio]))
+            return WidgetPortfolio(name: portfolio.name, value: sums.value, day: sums.day, dayPct: sums.dayPct)
         }
         entry.movers = symbols
             .compactMap { symbol in
