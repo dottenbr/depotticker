@@ -397,7 +397,14 @@ enum DeutscheBoerse {
                 let done = state.read[venue.rawValue] ?? []
                 let floor = max(DeutscheBoerse.firstMinute, newest - DeutscheBoerse.lookBack)
                 guard newest >= floor else { continue }
-                open[venue] = stride(from: newest, through: floor, by: -1).filter { !done.contains($0) }
+                var minutes = stride(from: newest, through: floor, by: -1).filter { !done.contains($0) }
+                if venue == .xetra {
+                    // After the close, the closing auction holds the day's last price of nearly every
+                    // share: read it before working back through the quiet evening minutes.
+                    let auction = DeutscheBoerse.closingAuction(on: now)
+                    minutes = minutes.filter { auction.contains($0) } + minutes.filter { !auction.contains($0) }
+                }
+                open[venue] = minutes
             }
             var failures = 0
             while budget > 0, failures < 3, open.values.contains(where: { !$0.isEmpty }) {
@@ -423,6 +430,13 @@ enum DeutscheBoerse {
 
         private var dailyChecked: [String: String] = [:]
         private(set) var backlog = 0
+    }
+
+    /// Minutes of the day (UTC) in which Xetra publishes its closing auction, 17:35 to 17:38 in Frankfurt.
+    static func closingAuction(on day: Date) -> Set<Int> {
+        let offset = (TimeZone(identifier: "Europe/Berlin")?.secondsFromGMT(for: day) ?? 3_600) / 60
+        let start = 17 * 60 + 35 - offset
+        return Set(start...(start + 3))
     }
 
     /// Requests per round; rounds follow each other at the refresh interval of one minute.
@@ -588,6 +602,32 @@ enum DeutscheBoerse {
         if series == nil, range != .day { throw MarketDataError.noHistory }
         return ChartData(meta: meta, points: series?.points ?? [],
                          previousClose: range == .day ? found.previous : series?.previousClose, session: nil)
+    }
+
+    /// Whether the files of the previous days have been read for every venue (so a share without a
+    /// price really was not traded there), and which of the symbols have a price.
+    static func coverage(_ symbols: [String]) async -> (settled: Bool, found: Set<String>) {
+        let state = await engine.snapshot()
+        let isins = Set(MarketData.registeredISINs.values)
+        let settled = isins.isSubset(of: state.tracked)
+            && Venue.allCases.allSatisfy { !(state.daily[$0.rawValue] ?? "").isEmpty }
+        return (settled, Set(symbols.filter { find($0, in: state) != nil }))
+    }
+
+    /// The closes collected on this device so far (possibly a single one), with their currency.
+    static func collected(_ symbol: String) async -> DailyHistory? {
+        let state = await engine.snapshot()
+        guard let found = find(symbol, in: state) else { return nil }
+        let v = found.venue.rawValue
+        var closes = (state.history[v]?[found.isin] ?? [:]).compactMap { day, price -> ChartPoint? in
+            date(day + "T12:00:00").map { ChartPoint(date: $0, price: price) }
+        }
+        if let today = state.day[v], let stamp = date(today + "T12:00:00"), let last = state.last[v]?[found.isin] {
+            closes.removeAll { $0.date == stamp }
+            closes.append(ChartPoint(date: stamp, price: last.price))
+        }
+        closes.sort { $0.date < $1.date }
+        return DailyHistory(currency: state.currency[found.isin] ?? "EUR", points: closes)
     }
 
     /// The closing prices collected so far. Not enough for estimating purchase dates.

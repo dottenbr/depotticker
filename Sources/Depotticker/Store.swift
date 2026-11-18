@@ -179,15 +179,18 @@ final class Store: ObservableObject {
     // MARK: Price source
 
     /// Switches the price source or stores an API key, then reloads everything from the new source.
-    func setSource(_ source: DataSource, key: String? = nil) {
+    func setSource(_ source: DataSource, key: String? = nil, supplement: DataSource? = nil) {
         var config = sourceConfig
         config.source = source
-        if let key { config.keys[source.rawValue] = key.trimmingCharacters(in: .whitespacesAndNewlines) }
+        config.supplement = source == .boerse ? supplement : nil
+        let keyed = source == .boerse ? supplement : source
+        if let key, let keyed { config.keys[keyed.rawValue] = key.trimmingCharacters(in: .whitespacesAndNewlines) }
         guard config != sourceConfig else { return }
         config.save(to: repository.directory)
         MarketData.config = config
         sourceConfig = config
         quotes.removeAll()
+        supplementedSeen = []
         // Listing currency and venue differ between sources; each has its own cached facts.
         meta = repository.loadMeta()
         lastError = nil
@@ -297,7 +300,24 @@ final class Store: ObservableObject {
             fxPrevious[currency] = rate.previous
         }
         ratesDate = MarketData.source == .yahoo ? nil : await ECB.latestDate()
-        for symbol in symbols {
+        // A share that moved between the exchanges and the gap-filling source is now quoted in another
+        // currency: its cached facts are replaced before its new price is shown.
+        let supplemented = MarketData.supplemented
+        let moved = supplemented.symmetricDifference(supplementedSeen)
+        supplementedSeen = supplemented
+        let stale = moved.filter { symbol in
+            guard let known = meta[symbol] else { return false }
+            return (known.exchange == "Xetra" || known.exchange == "Frankfurt" || known.exchange == "Tradegate")
+                == supplemented.contains(symbol)
+        }
+        if !stale.isEmpty {
+            for symbol in stale {
+                meta[symbol] = nil
+                quotes[symbol] = nil
+            }
+            await loadMissingMeta(for: symbols)
+        }
+        for symbol in symbols where meta[symbol] != nil || !stale.contains(symbol) {
             if let quote = merged[symbol] { quotes[symbol] = quote }
         }
         lastError = failure
@@ -306,6 +326,8 @@ final class Store: ObservableObject {
             MarketData.cache(quotes: merged)
         }
     }
+
+    private var supplementedSeen: Set<String> = []
 
     private func loadMissingMeta(for symbols: [String]) async {
         let missing = symbols.filter { meta[$0] == nil && !metaInFlight.contains($0) }

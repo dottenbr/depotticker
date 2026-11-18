@@ -320,4 +320,78 @@ final class SourceTests: XCTestCase {
         let backlog = await DeutscheBoerse.backlog()
         print("backlog after the first round: \(backlog) minute files")
     }
+
+    // MARK: Gap-filling source
+
+    private func day(_ offset: Int) -> Date {
+        Date(timeIntervalSince1970: 1_700_000_000 + Double(offset) * 86_400)
+    }
+
+    func testOlderHistoryIsConvertedAndJoinedBeforeTheOwnCloses() throws {
+        let older = (0..<5).map { ChartPoint(date: day($0), price: 100) }
+        let rates = [ChartPoint(date: day(-1), price: 0.9), ChartPoint(date: day(2), price: 0.8)]
+        let own = [ChartPoint(date: day(3), price: 81), ChartPoint(date: day(4), price: 82)]
+        let joined = try XCTUnwrap(MarketData.join(older: older, rates: rates, own: own))
+        XCTAssertEqual(joined.map(\.price), [90, 90, 80, 81, 82])
+        // A day the app was not running is taken from the second source.
+        let holed = try XCTUnwrap(MarketData.join(older: older, rates: rates, own: [own[0], ChartPoint(date: day(6), price: 83)]))
+        XCTAssertEqual(holed.map(\.price), [90, 90, 80, 81, 80, 83])
+    }
+
+    func testHistoryOfADifferentShareIsRejected() {
+        let older = (0..<3).map { ChartPoint(date: day($0), price: 100) }
+        let own = [ChartPoint(date: day(3), price: 10)]
+        XCTAssertNil(MarketData.join(older: older, rates: nil, own: own))
+    }
+
+    func testSliceKeepsTheCloseBeforeTheRange() throws {
+        let now = Date()
+        let points = (0..<30).map { ChartPoint(date: now.addingTimeInterval(Double($0 - 29) * 86_400), price: Double($0)) }
+        let week = try XCTUnwrap(MarketData.slice(points, range: .week))
+        XCTAssertEqual(week.points.last?.price, 29)
+        XCTAssertEqual(week.previousClose, (week.points.first?.price ?? 0) - 1)
+        XCTAssertNil(MarketData.slice(points, range: .day))
+    }
+
+    func testSupplementOnlyAppliesToTheExchangeSource() throws {
+        let old = try JSONDecoder().decode(SourceConfig.self, from: Data(#"{"keys":{},"source":"boerse"}"#.utf8))
+        XCTAssertNil(old.fill)
+        XCTAssertNil(SourceConfig(source: .boerse, keys: [:], supplement: .eodhd).fill, "no key, no supplement")
+        XCTAssertEqual(SourceConfig(source: .boerse, keys: ["eodhd": "k"], supplement: .eodhd).fill, .eodhd)
+        XCTAssertNil(SourceConfig(source: .eodhd, keys: ["eodhd": "k"], supplement: .eodhd).fill)
+        XCTAssertTrue(SourceConfig(source: .boerse, keys: ["eodhd": "k"], supplement: .eodhd).attribution.contains("EODHD"))
+    }
+
+    /// The exchanges plus a second source on live data. Run with DEPOTTICKER_LIVE=1.
+    func testLiveGapsAreFilled() async throws {
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["DEPOTTICKER_LIVE"] == "1")
+        MarketData.register(isins: ["SAP.DE": "DE0007164600", "AAPL": "US0378331005", "BA.L": "GB0002634946",
+                                    "VTI": "US9229087690"])
+        MarketData.config = SourceConfig(source: .boerse, keys: [:], supplement: .yahoo)
+        DeutscheBoerse.blocking = true
+        let symbols = ["SAP.DE", "AAPL", "BA.L", "VTI", "MGC"]
+        let quotes = try await MarketData.quotes(symbols)
+        print("supplemented:", MarketData.supplemented.sorted())
+        for symbol in symbols {
+            let day = try? await MarketData.chart(symbol, range: .day)
+            let year = try? await MarketData.chart(symbol, range: .year)
+            let all = try? await MarketData.dailyHistory(symbol)
+            print("\(symbol): \(quotes[symbol]?.price ?? -1) prev \(quotes[symbol]?.previousClose ?? -1) [\(day?.meta.exchange ?? "?") \(day?.meta.currency ?? "?")] 1Y \(year?.points.count ?? 0) points \(year?.points.first?.price ?? -1) → \(year?.points.suffix(3).map(\.price) ?? []) prev \(year?.previousClose ?? -1); all \(all?.points.count ?? 0) in \(all?.currency ?? "?") from \(all?.points.first?.date.description ?? "?")")
+        }
+        XCTAssertEqual(quotes.count, 5)
+        XCTAssertTrue(MarketData.supplemented.isSuperset(of: ["MGC"]))
+        XCTAssertFalse(MarketData.supplemented.contains("SAP.DE"))
+        let series = await MarketData.series(symbols, range: .month)
+        XCTAssertEqual(series.count, 5)
+        let aapl = try await MarketData.dailyHistory("AAPL")
+        XCTAssertEqual(aapl.currency, "EUR")
+        XCTAssertGreaterThan(aapl.points.count, 5_000)
+    }
+
+    func testClosingAuctionFollowsFrankfurtTime() {
+        let winter = Date(timeIntervalSince1970: 1_795_000_000) // November 2026
+        XCTAssertEqual(DeutscheBoerse.closingAuction(on: winter), [16 * 60 + 35, 16 * 60 + 36, 16 * 60 + 37, 16 * 60 + 38])
+        let summer = Date(timeIntervalSince1970: 1_783_000_000) // July 2026
+        XCTAssertTrue(DeutscheBoerse.closingAuction(on: summer).contains(15 * 60 + 35))
+    }
 }

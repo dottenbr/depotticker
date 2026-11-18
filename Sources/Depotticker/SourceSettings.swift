@@ -6,9 +6,22 @@ struct SourceSettingsSection: View {
     @EnvironmentObject private var store: Store
     @State private var source: DataSource = .none
     @State private var key = ""
+    /// Second source for what the exchanges' free data lacks; `.none` for no second source.
+    @State private var supplement: DataSource = .none
+
+    /// The source the key field belongs to.
+    private var keyed: DataSource? {
+        if source.needsKey { return source }
+        if source == .boerse, supplement.needsKey { return supplement }
+        return nil
+    }
+
+    private var chosenSupplement: DataSource? { source == .boerse && supplement != .none ? supplement : nil }
 
     private var changed: Bool {
-        source != store.sourceConfig.source || (source.needsKey && key != (store.sourceConfig.key(source) ?? ""))
+        source != store.sourceConfig.source
+            || chosenSupplement != store.sourceConfig.supplement
+            || (keyed.map { key != (store.sourceConfig.key($0) ?? "") } ?? false)
     }
 
     var body: some View {
@@ -16,7 +29,13 @@ struct SourceSettingsSection: View {
             Picker("Prices from", selection: $source) {
                 ForEach(DataSource.available) { Text($0.title).tag($0) }
             }
-            if source.needsKey {
+            if source == .boerse {
+                Picker("Fill gaps with", selection: $supplement) {
+                    Text("Nothing").tag(DataSource.none)
+                    ForEach(DataSource.supplements) { Text($0.shortTitle).tag($0) }
+                }
+            }
+            if keyed != nil {
                 SecureField("API key", text: $key)
                     .textContentType(.password)
                     .autocorrectionDisabled()
@@ -25,12 +44,18 @@ struct SourceSettingsSection: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            if source == .eodhd {
+            if source == .boerse, supplement != .none {
+                Text(supplementExplanation)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if keyed == .eodhd {
                 Link("Get an EODHD key", destination: URL(string: "https://eodhd.com/pricing")!)
                     .font(.caption)
             }
-            Button("Use This Source") { store.setSource(source, key: source.needsKey ? key : nil) }
-                .disabled(!changed || (source.needsKey && key.trimmingCharacters(in: .whitespaces).isEmpty))
+            Button("Use This Source") { store.setSource(source, key: keyed == nil ? nil : key, supplement: chosenSupplement) }
+                .disabled(!changed || (keyed != nil && key.trimmingCharacters(in: .whitespaces).isEmpty))
             if let progress = store.isinProgress {
                 ProgressView(value: Double(progress.done), total: Double(max(progress.total, 1))) {
                     Text("Looking up ISINs: \(progress.done) of \(progress.total)")
@@ -53,9 +78,27 @@ struct SourceSettingsSection: View {
         }
         .onAppear {
             source = store.sourceConfig.source
-            key = store.sourceConfig.key(source) ?? ""
+            supplement = store.sourceConfig.supplement ?? .none
+            key = keyed.flatMap { store.sourceConfig.key($0) } ?? ""
         }
-        .onChange(of: source) { _, new in key = store.sourceConfig.key(new) ?? "" }
+        .onChange(of: source) { _, _ in key = keyed.flatMap { store.sourceConfig.key($0) } ?? "" }
+        .onChange(of: supplement) { _, _ in key = keyed.flatMap { store.sourceConfig.key($0) } ?? "" }
+    }
+
+    private var supplementExplanation: String {
+        let what = "It supplies the price history from before the app started collecting its own, which also makes "
+            + "purchase-date estimates possible, and prices the shares that are not traded on the German exchanges. "
+            + "Where it quotes a share in another currency, its older prices are converted at the European Central "
+            + "Bank's rate of each day, so they are close to, but not exactly, what the share cost in Germany. "
+        switch supplement {
+        case .yahoo:
+            return what + "Yahoo's terms do not permit automated access, so this part is not licensed and can stop "
+                + "working at any time."
+        case .eodhd:
+            return what + "EODHD is a licensed vendor; you paste your own key, which stays on this device."
+        default:
+            return ""
+        }
     }
 
     private var explanation: String {
@@ -68,8 +111,9 @@ struct SourceSettingsSection: View {
                 + "15 minutes, and Deutsche Börse does so for Xetra, Frankfurt and Tradegate. The app downloads these "
                 + "files to this device and keeps only your own shares; that can be up to about 50 MB on a full trading "
                 + "day. Each position needs its ISIN, which the app looks up for you. Shares not traded on these "
-                + "exchanges, such as US-only funds, show no price. The files hold no history, so charts fill up from "
-                + "the day you start, and purchase dates cannot be estimated. Exchange rates are the European Central "
+                + "exchanges, such as US-only funds, show no price, and the files hold no history, so charts fill up "
+                + "from the day you start and purchase dates cannot be estimated, unless you choose a second source "
+                + "to fill these gaps. Exchange rates are the European Central "
                 + "Bank's daily reference rates."
         case .eodhd:
             return "EODHD is a licensed data vendor covering Xetra, other European exchanges, funds and US shares. "
@@ -99,7 +143,7 @@ struct SourceSettingsSheet: View {
                 }
         }
         #if os(macOS)
-        .frame(width: 520, height: 380)
+        .frame(width: 520, height: 520)
         #endif
     }
 }

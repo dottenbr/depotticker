@@ -133,7 +133,7 @@ struct OverviewView: View {
 
     /// Names the data sources, as their terms ask.
     private var sourceNote: String {
-        var note = store.sourceConfig.source.attribution
+        var note = store.sourceConfig.attribution
         if let date = store.ratesDate, !note.isEmpty {
             note += " (reference rates of \(date.formatted(.dateTime.day().month(.abbreviated))))"
         }

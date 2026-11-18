@@ -32,6 +32,18 @@ enum DataSource: String, Codable, CaseIterable, Identifiable {
 
     var needsKey: Bool { self == .eodhd }
 
+    /// Sources that can fill the gaps of the exchanges' free data (history, shares not traded there).
+    static var supplements: [DataSource] { available.filter { $0 == .eodhd || $0 == .yahoo } }
+
+    var shortTitle: String {
+        switch self {
+        case .none: return "None"
+        case .boerse: return "Deutsche Börse"
+        case .eodhd: return "EODHD"
+        case .yahoo: return "Yahoo Finance (unofficial)"
+        }
+    }
+
     /// Shown wherever prices appear.
     var attribution: String {
         switch self {
@@ -92,6 +104,21 @@ enum MarketDataError: LocalizedError {
 struct SourceConfig: Codable, Equatable {
     var source: DataSource = .none
     var keys: [String: String] = [:]
+    /// Second source that fills the gaps of the exchanges' free data. Only used with `.boerse`.
+    var supplement: DataSource?
+
+    /// The second source, when it is in effect.
+    var fill: DataSource? {
+        guard source == .boerse, let supplement, DataSource.supplements.contains(supplement) else { return nil }
+        if supplement.needsKey, key(supplement) == nil { return nil }
+        return supplement
+    }
+
+    /// Shown wherever prices appear.
+    var attribution: String {
+        guard let fill else { return source.attribution }
+        return source.attribution + " · Older history and shares not traded there: " + fill.shortTitle
+    }
 
     func key(_ source: DataSource) -> String? {
         keys[source.rawValue].flatMap { $0.isEmpty ? nil : $0 }
@@ -117,8 +144,9 @@ struct SourceConfig: Codable, Equatable {
 
 /// Single entry point for prices, history, search and exchange rates.
 enum MarketData {
-    private static let lock = NSLock()
+    static let lock = NSLock()
     private static var stored = SourceConfig()
+    static var supplementedSet: Set<String> = []
 
     static var config: SourceConfig {
         get { lock.lock(); defer { lock.unlock() }; return stored }
@@ -130,21 +158,26 @@ enum MarketData {
     /// Listing currency and venue of a symbol differ between sources (a US share is quoted in euros on
     /// Tradegate), so each source keeps its own file of cached symbol facts.
     static var metaFileName: String {
-        switch source {
+        let current = config
+        switch current.source {
         case .none, .yahoo: return "meta.json"
-        default: return "meta-\(source.rawValue).json"
+        default: return "meta-\(current.source.rawValue)\(current.fill.map { "-" + $0.rawValue } ?? "").json"
         }
     }
 
     /// Reads the configuration from the data folder. `DEPOTTICKER_SOURCE=eodhd:<key>` overrides it
-    /// (used for demos and tests). Returns false when nothing has been chosen yet.
+    /// (used for demos and tests); `boerse+yahoo` or `boerse+eodhd:<key>` adds the gap-filling source. Returns false when nothing has been chosen yet.
     @discardableResult
     static func configure(directory: URL) -> Bool {
         lock.lock(); self.directory = directory; lock.unlock()
         if let override = ProcessInfo.processInfo.environment["DEPOTTICKER_SOURCE"], !override.isEmpty {
             let parts = override.split(separator: ":", maxSplits: 1).map(String.init)
-            if let source = DataSource(rawValue: parts[0]), DataSource.available.contains(source) {
-                config = SourceConfig(source: source, keys: parts.count > 1 ? [source.rawValue: parts[1]] : [:])
+            let names = parts[0].split(separator: "+").map(String.init)
+            if let source = DataSource(rawValue: names[0]), DataSource.available.contains(source) {
+                let supplement = names.count > 1 ? DataSource(rawValue: names[1]) : nil
+                let keyed = supplement ?? source
+                config = SourceConfig(source: source, keys: parts.count > 1 ? [keyed.rawValue: parts[1]] : [:],
+                                      supplement: supplement)
                 return true
             }
         }
@@ -219,67 +252,136 @@ enum MarketData {
         return slim.mapValues { LiveQuote(price: $0.price, previousClose: $0.previousClose, spark: []) }
     }
 
-    // MARK: Prices
+    // MARK: One vendor
 
-    /// Latest price and previous close per symbol. Symbols the source does not know are left out.
-    static func quotes(_ symbols: [String]) async throws -> [String: LiveQuote] {
-        guard !symbols.isEmpty else { return [:] }
-        switch try ready() {
+    static func quotes(_ symbols: [String], from source: DataSource) async throws -> [String: LiveQuote] {
+        switch source {
         case .eodhd: return try await EODHD.quotes(symbols)
-        case .boerse: return try await Self.isExtension ? cachedQuotes() : DeutscheBoerse.quotes(symbols)
         case .yahoo:
             #if DIRECT
             return try await batched(symbols, size: Yahoo.batchSize) { try await Yahoo.spark($0) }
             #else
             throw MarketDataError.noSource
             #endif
-        case .none: throw MarketDataError.noSource
+        default: throw MarketDataError.noSource
         }
     }
 
-    /// Price history of several symbols for one range, in raw quote units.
-    static func series(_ symbols: [String], range: ChartRange) async -> [String: PriceSeries] {
-        guard !symbols.isEmpty, let source = try? ready() else { return [:] }
+    static func series(_ symbols: [String], range: ChartRange, from source: DataSource) async -> [String: PriceSeries] {
+        guard !symbols.isEmpty else { return [:] }
         switch source {
         case .eodhd: return await EODHD.series(symbols, range: range)
-        case .boerse: return await DeutscheBoerse.series(symbols, range: range)
         case .yahoo:
             #if DIRECT
             return (try? await batched(symbols, size: Yahoo.batchSize) { try await Yahoo.series($0, range: range) }) ?? [:]
             #else
             return [:]
             #endif
-        case .none: return [:]
+        default: return [:]
         }
     }
 
-    static func chart(_ symbol: String, range: ChartRange) async throws -> ChartData {
-        switch try ready() {
+    static func chart(_ symbol: String, range: ChartRange, from source: DataSource) async throws -> ChartData {
+        switch source {
         case .eodhd: return try await EODHD.chart(symbol, range: range)
-        case .boerse: return try await DeutscheBoerse.chart(symbol, range: range)
         case .yahoo:
             #if DIRECT
             return try await Yahoo.chart(symbol, range: range)
             #else
             throw MarketDataError.noSource
             #endif
-        case .none: throw MarketDataError.noSource
+        default: throw MarketDataError.noSource
         }
     }
 
-    /// Every daily close on record, split-adjusted, oldest first, in the listing's currency.
-    static func dailyHistory(_ symbol: String) async throws -> DailyHistory {
-        switch try ready() {
+    static func dailyHistory(_ symbol: String, from source: DataSource) async throws -> DailyHistory {
+        switch source {
         case .eodhd: return try await EODHD.dailyHistory(symbol)
-        case .boerse: return try await DeutscheBoerse.dailyHistory(symbol)
         case .yahoo:
             #if DIRECT
             return try await Yahoo.dailyHistory(symbol)
             #else
             throw MarketDataError.noSource
             #endif
-        case .none: throw MarketDataError.noSource
+        default: throw MarketDataError.noSource
         }
+    }
+
+    static func news(symbol: String, name: String, from source: DataSource) async throws -> [NewsItem] {
+        switch source {
+        case .eodhd: return try await EODHD.news(symbol)
+        case .yahoo:
+            #if DIRECT
+            return try await Yahoo.news(symbol: symbol, name: name)
+            #else
+            return []
+            #endif
+        default: return []
+        }
+    }
+
+    // MARK: Prices
+
+    /// Latest price and previous close per symbol. Symbols the source does not know are left out.
+    static func quotes(_ symbols: [String]) async throws -> [String: LiveQuote] {
+        guard !symbols.isEmpty else { return [:] }
+        let source = try ready()
+        guard source == .boerse else { return try await quotes(symbols, from: source) }
+        if isExtension { return try cachedQuotes() }
+        var out = try await DeutscheBoerse.quotes(symbols)
+        if let fill = config.fill {
+            let missing = await gaps(symbols)
+            let wanted = symbols.filter { missing.contains($0) }
+            if !wanted.isEmpty, let extra = try? await quotes(wanted, from: fill) {
+                out.merge(extra) { own, _ in own }
+            }
+        }
+        return out
+    }
+
+    /// Price history of several symbols for one range, in raw quote units.
+    static func series(_ symbols: [String], range: ChartRange) async -> [String: PriceSeries] {
+        guard !symbols.isEmpty, let source = try? ready() else { return [:] }
+        guard source == .boerse else { return await series(symbols, range: range, from: source) }
+        var out = await DeutscheBoerse.series(symbols, range: range)
+        guard let fill = config.fill else { return out }
+        let missing = await gaps(symbols)
+        async let outside = series(symbols.filter { missing.contains($0) }, range: range, from: fill)
+        if range != .day {
+            let filled = await filledSeries(symbols.filter { !missing.contains($0) }, range: range, fill: fill)
+            out.merge(filled) { _, long in long }
+        }
+        out.merge(await outside) { own, _ in own }
+        return out
+    }
+
+    static func chart(_ symbol: String, range: ChartRange) async throws -> ChartData {
+        let source = try ready()
+        guard source == .boerse else { return try await chart(symbol, range: range, from: source) }
+        guard let fill = config.fill else { return try await DeutscheBoerse.chart(symbol, range: range) }
+        // The first call starts reading the exchanges' files; only then is it known who prices the share.
+        let day = try? await DeutscheBoerse.chart(symbol, range: .day)
+        if await gaps([symbol]).contains(symbol) { return try await chart(symbol, range: range, from: fill) }
+        guard let day else { throw MarketDataError.unknownSymbol }
+        if range == .day { return day }
+        guard let history = await filledHistory(symbol, fill: fill), let shown = slice(history.points, range: range) else {
+            return try await DeutscheBoerse.chart(symbol, range: range)
+        }
+        var meta = day.meta
+        meta.open = nil
+        meta.previousClose = nil
+        return ChartData(meta: meta, points: shown.points, previousClose: shown.previousClose, session: nil)
+    }
+
+    /// Every daily close on record, split-adjusted, oldest first, in the listing's currency.
+    static func dailyHistory(_ symbol: String) async throws -> DailyHistory {
+        let source = try ready()
+        guard source == .boerse else { return try await dailyHistory(symbol, from: source) }
+        guard let fill = config.fill else { return try await DeutscheBoerse.dailyHistory(symbol) }
+        _ = try? await DeutscheBoerse.chart(symbol, range: .day)
+        if await gaps([symbol]).contains(symbol) { return try await dailyHistory(symbol, from: fill) }
+        if let history = await filledHistory(symbol, fill: fill) { return history }
+        return try await DeutscheBoerse.dailyHistory(symbol)
     }
 
     static func search(_ text: String) async throws -> [SearchResult] {
@@ -298,23 +400,19 @@ enum MarketData {
 
     static func fundamentals(_ symbol: String) async throws -> Fundamentals {
         #if DIRECT
-        if try ready() == .yahoo { return try await Yahoo.fundamentals(symbol) }
+        let source = try ready()
+        if source == .yahoo || (source == .boerse && config.fill == .yahoo) { return try await Yahoo.fundamentals(symbol) }
         #endif
         throw MarketDataError.unsupported
     }
 
     static func news(symbol: String, name: String) async throws -> [NewsItem] {
-        switch try ready() {
-        case .eodhd: return try await EODHD.news(symbol)
-        case .boerse: return []
-        case .yahoo:
-            #if DIRECT
-            return try await Yahoo.news(symbol: symbol, name: name)
-            #else
-            return []
-            #endif
-        case .none: return []
+        let source = try ready()
+        if source == .boerse {
+            guard let fill = config.fill else { return [] }
+            return try await news(symbol: symbol, name: name, from: fill)
         }
+        return try await news(symbol: symbol, name: name, from: source)
     }
 
     // MARK: Exchange rates
