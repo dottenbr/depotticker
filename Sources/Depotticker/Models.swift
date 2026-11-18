@@ -41,6 +41,8 @@ struct Position: Codable, Identifiable, Hashable {
     var trades: [Trade] = []
     /// The broker's holding-period hint, when it gives one: "long" (over a year), "short" or "mixed".
     var timeHeld: String?
+    /// International Securities Identification Number; the German exchanges' data is keyed by it.
+    var isin: String?
 
     /// Cost is known but no purchase carries a date yet.
     var needsPurchaseDate: Bool {
@@ -53,8 +55,10 @@ struct Position: Codable, Identifiable, Hashable {
     var cost: Double { quantity * unitCost }
 
     init(id: UUID = UUID(), symbol: String, name: String, quantity: Double, unitCost: Double,
-         currency: String = "EUR", costUnknown: Bool = false, trades: [Trade] = [], timeHeld: String? = nil) {
+         currency: String = "EUR", costUnknown: Bool = false, trades: [Trade] = [], timeHeld: String? = nil,
+         isin: String? = nil) {
         self.timeHeld = timeHeld
+        self.isin = isin
         self.id = id
         self.symbol = symbol
         self.name = name
@@ -66,7 +70,7 @@ struct Position: Codable, Identifiable, Hashable {
         applyTrades()
     }
 
-    enum CodingKeys: String, CodingKey { case id, symbol, name, quantity, unitCost, currency, costUnknown, trades, timeHeld }
+    enum CodingKeys: String, CodingKey { case id, symbol, name, quantity, unitCost, currency, costUnknown, trades, timeHeld, isin }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -79,6 +83,7 @@ struct Position: Codable, Identifiable, Hashable {
         costUnknown = try c.decodeIfPresent(Bool.self, forKey: .costUnknown) ?? false
         trades = try c.decodeIfPresent([Trade].self, forKey: .trades) ?? []
         timeHeld = try c.decodeIfPresent(String.self, forKey: .timeHeld)
+        isin = try c.decodeIfPresent(String.self, forKey: .isin)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -93,6 +98,7 @@ struct Position: Codable, Identifiable, Hashable {
         if costUnknown { try c.encode(true, forKey: .costUnknown) }
         if !trades.isEmpty { try c.encode(trades, forKey: .trades) }
         try c.encodeIfPresent(timeHeld, forKey: .timeHeld)
+        try c.encodeIfPresent(isin, forKey: .isin)
     }
 
     /// Trades in date order; undated ones (the opening holding) first.
@@ -305,6 +311,7 @@ struct SearchResult: Identifiable, Hashable {
     var name: String
     var exchange: String
     var type: String
+    var isin: String?
     var id: String { symbol }
 }
 

@@ -31,6 +31,20 @@ struct SourceSettingsSection: View {
             }
             Button("Use This Source") { store.setSource(source, key: source.needsKey ? key : nil) }
                 .disabled(!changed || (source.needsKey && key.trimmingCharacters(in: .whitespaces).isEmpty))
+            if let progress = store.isinProgress {
+                ProgressView(value: Double(progress.done), total: Double(max(progress.total, 1))) {
+                    Text("Looking up ISINs: \(progress.done) of \(progress.total)")
+                        .font(.caption)
+                }
+            } else if store.sourceConfig.source == .boerse, !changed {
+                if !store.unresolvedISINs.isEmpty {
+                    Text("No ISIN found for \(store.unresolvedISINs.joined(separator: ", ")). Edit these positions to enter it.")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Button("Look Up Missing ISINs") { Task { await store.resolveISINs(); await store.refresh() } }
+            }
             if let error = store.lastError, !changed {
                 Label(error, systemImage: "exclamationmark.triangle")
                     .font(.caption)
@@ -49,6 +63,14 @@ struct SourceSettingsSection: View {
         case .none:
             return "Share prices are licensed data, so Depotticker has no built-in feed. Choose a source to see "
                 + "prices and values. Your positions stay as they are."
+        case .boerse:
+            return "Free and without an account. EU law obliges exchanges to publish their prices free of charge after "
+                + "15 minutes, and Deutsche Börse does so for Xetra, Frankfurt and Tradegate. The app downloads these "
+                + "files to this device and keeps only your own shares; that can be up to about 50 MB on a full trading "
+                + "day. Each position needs its ISIN, which the app looks up for you. Shares not traded on these "
+                + "exchanges, such as US-only funds, show no price. The files hold no history, so charts fill up from "
+                + "the day you start, and purchase dates cannot be estimated. Exchange rates are the European Central "
+                + "Bank's daily reference rates."
         case .eodhd:
             return "EODHD is a licensed data vendor covering Xetra, other European exchanges, funds and US shares. "
                 + "You sign up there yourself and paste your key here; the app then asks EODHD directly from this "

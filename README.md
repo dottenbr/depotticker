@@ -33,10 +33,11 @@ The direct build needs the full Xcode (the Command Line Tools alone lack the Swi
 
 Exchange prices are licensed data, so Depotticker ships without a built-in price feed. Each user picks a source in the app (Settings › Price source):
 
+- **German exchanges (free)**: the delayed trade files Deutsche Börse publishes under MiFIR Article 13 for Xetra, Frankfurt and Tradegate, 15 minutes delayed, no key. The app downloads the whole-market files on the user's device, paced to respect the file service's rate limit, and keeps only the user's ISINs (`DeutscheBoerse.swift`). ISINs come from ESMA's instrument register and OpenFIGI (`Instruments.swift`). No history: closes are collected from first use.
 - **EODHD** with the user's own API key. The app talks to EODHD directly from the user's device; prices are delayed by about 15 minutes, and daily closes are split-adjusted in the app. A portfolio needs one of EODHD's paid personal plans.
 - **Yahoo Finance (unofficial)**, in the direct-download build only (compile flag `DIRECT`). Yahoo's terms do not permit automated access, so it is never the default; installs that already used it keep it until they switch. The App Store builds contain no Yahoo code.
 
-Exchange rates with a licensed source are the European Central Bank's euro reference rates (one fixing per working day, free to reuse with the source named).
+Exchange rates with every source except Yahoo are the European Central Bank's euro reference rates (one fixing per working day, free to reuse with the source named).
 
 Depotticker is not investment advice.
 

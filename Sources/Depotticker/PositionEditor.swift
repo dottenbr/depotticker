@@ -11,6 +11,7 @@ struct PositionEditor: View {
     @State private var unitCost: Double?
     @State private var portfolioID: UUID?
     @State private var currency = "EUR"
+    @State private var isin = ""
     @State private var costUnknown = false
     @State private var trades: [Trade] = []
     @State private var tradeKind = Trade.Kind.buy
@@ -38,7 +39,8 @@ struct PositionEditor: View {
     private var draft: Position {
         Position(id: existing?.position.id ?? UUID(), symbol: symbol, name: name, quantity: quantity ?? 0,
                  unitCost: costUnknown ? 0 : (unitCost ?? 0), currency: currency, costUnknown: costUnknown,
-                 trades: trades, timeHeld: existing?.position.timeHeld)
+                 trades: trades, timeHeld: existing?.position.timeHeld,
+                 isin: isin.trimmingCharacters(in: .whitespaces).isEmpty ? nil : isin.trimmingCharacters(in: .whitespaces).uppercased())
     }
 
     private var currencies: [String] {
@@ -72,6 +74,8 @@ struct PositionEditor: View {
                 Picker("Portfolio", selection: $portfolioID) {
                     ForEach(store.portfolios) { Text($0.name).tag(Optional($0.id)) }
                 }
+                TextField("ISIN", text: $isin, prompt: Text("needed for the German exchanges' prices"))
+                    .autocorrectionDisabled()
                 Picker("Bought in", selection: $currency) {
                     ForEach(currencies, id: \.self) { Text($0).tag($0) }
                 }
@@ -248,8 +252,19 @@ struct PositionEditor: View {
                     VStack(spacing: 0) {
                         ForEach(results) { result in
                             Button {
-                                symbol = result.symbol
                                 name = result.name
+                                if let found = result.isin {
+                                    // The registers list by ISIN; the symbol is looked up for it.
+                                    isin = found
+                                    symbol = found
+                                    Task {
+                                        let ticker = await Instruments.symbol(forISIN: found)
+                                        if isin == found { symbol = ticker }
+                                    }
+                                } else {
+                                    symbol = result.symbol
+                                    isin = ""
+                                }
                             } label: {
                                 HStack {
                                     Text(result.symbol)
@@ -285,6 +300,7 @@ struct PositionEditor: View {
             quantity = existing.position.quantity
             unitCost = existing.position.costUnknown ? nil : existing.position.unitCost
             currency = existing.position.currency
+            isin = existing.position.isin ?? ""
             costUnknown = existing.position.costUnknown
             trades = existing.position.trades
             portfolioID = existing.portfolioID

@@ -37,6 +37,8 @@ enum PortfolioMerge {
                     if !outcome.portfolios[index].positions[match].hasRecordedTrades || !position.trades.isEmpty {
                         var fresh = position
                         fresh.id = outcome.portfolios[index].positions[match].id
+                        // A file without an ISIN column must not wipe an ISIN already known.
+                        if (fresh.isin ?? "").isEmpty { fresh.isin = outcome.portfolios[index].positions[match].isin }
                         outcome.portfolios[index].positions[match] = fresh
                         outcome.updated += 1
                     } else {
@@ -54,7 +56,7 @@ enum PortfolioMerge {
 
 /// Import and export of positions as CSV, readable by Excel and Numbers.
 enum CSVCodec {
-    static let header = ["Portfolio", "Symbol", "Name", "Quantity", "Average cost", "Currency", "Date", "Type"]
+    static let header = ["Portfolio", "Symbol", "Name", "Quantity", "Average cost", "Currency", "Date", "Type", "ISIN"]
     static let extraHeader = ["Price (EUR)", "Value (EUR)", "Gain (EUR)", "Gain (%)"]
 
     enum ImportError: LocalizedError {
@@ -105,7 +107,8 @@ enum CSVCodec {
         for portfolio in portfolios {
             for position in portfolio.positions {
                 var fields = [portfolio.name, position.symbol, position.name, number(position.quantity),
-                              position.costUnknown ? "" : number(position.unitCost), position.currency, "", ""]
+                              position.costUnknown ? "" : number(position.unitCost), position.currency, "", "",
+                              position.isin ?? ""]
                 // A position with purchases and sales is written as one row per entry.
                 let trades = position.orderedTrades
                 if let first = trades.first {
@@ -135,7 +138,8 @@ enum CSVCodec {
     private static func tradeFields(_ trade: Trade, portfolio: Portfolio, position: Position) -> [String] {
         [portfolio.name, position.symbol, position.name, number(trade.quantity),
          position.costUnknown && trade.day == nil ? "" : number(trade.price), position.currency,
-         trade.day ?? "", (trade.kind == .buy ? "Buy" : "Sell") + (trade.estimated == true ? " (estimated)" : "")]
+         trade.day ?? "", (trade.kind == .buy ? "Buy" : "Sell") + (trade.estimated == true ? " (estimated)" : ""),
+         position.isin ?? ""]
     }
 
     /// Reads 2026-03-31, 31.03.2026 and 3/31/2026 (US order when written with slashes).
@@ -158,11 +162,11 @@ enum CSVCodec {
     static var template: String {
         let rows = [
             header,
-            ["My Broker", "SAP.DE", "SAP SE", number(5), number(120), "EUR", "", ""],
-            ["My Broker", "AAPL", "Apple Inc.", number(10), number(150.25), "EUR", "2023-03-14", "Buy"],
-            ["My Broker", "AAPL", "Apple Inc.", number(6), number(172.4), "EUR", "2024-08-02", "Buy"],
-            ["My Broker", "AAPL", "Apple Inc.", number(4), number(210), "EUR", "2025-05-20", "Sell"],
-            ["US Broker", "VTI", "Vanguard Total Stock Market ETF", number(12.5), number(240.1), "USD", "", ""],
+            ["My Broker", "SAP.DE", "SAP SE", number(5), number(120), "EUR", "", "", "DE0007164600"],
+            ["My Broker", "AAPL", "Apple Inc.", number(10), number(150.25), "EUR", "2023-03-14", "Buy", "US0378331005"],
+            ["My Broker", "AAPL", "Apple Inc.", number(6), number(172.4), "EUR", "2024-08-02", "Buy", "US0378331005"],
+            ["My Broker", "AAPL", "Apple Inc.", number(4), number(210), "EUR", "2025-05-20", "Sell", "US0378331005"],
+            ["US Broker", "VTI", "Vanguard Total Stock Market ETF", number(12.5), number(240.1), "USD", "", "", ""],
         ]
         return "\u{FEFF}" + rows.map(line).joined(separator: "\r\n") + "\r\n"
     }
@@ -194,6 +198,7 @@ enum CSVCodec {
 
         let dateColumn = column(["date", "datum", "kaufdatum"])
         let typeColumn = column(["type", "typ", "art", "transaction"])
+        let isinColumn = column(["isin"])
 
         // Rows of the same portfolio and symbol are purchases and sales of one position.
         struct Row { var quantity: Double; var price: Double; var priceGiven: Bool; var day: String?; var kind: Trade.Kind; var estimated: Bool }
@@ -203,6 +208,7 @@ enum CSVCodec {
         var rowsByKey: [Key: [Row]] = [:]
         var names: [Key: String] = [:]
         var currencies: [Key: String] = [:]
+        var isins: [Key: String] = [:]
         for (index, row) in rows.dropFirst().enumerated() {
             func cell(_ column: Int?) -> String {
                 guard let column, column < row.count else { return "" }
@@ -232,6 +238,8 @@ enum CSVCodec {
                                                    day: day, kind: kind, estimated: typeText.contains("estimated")))
             if names[key] == nil { names[key] = cell(nameColumn).isEmpty ? symbol : cell(nameColumn) }
             if currencies[key] == nil, currencyText.count == 3 { currencies[key] = currencyText }
+            let isinText = cell(isinColumn).uppercased()
+            if isins[key] == nil, Instruments.looksLikeISIN(isinText) { isins[key] = isinText }
         }
         guard !keyOrder.isEmpty else { throw ImportError.empty }
         var grouped: [String: [Position]] = [:]
@@ -242,7 +250,7 @@ enum CSVCodec {
             if entries.count == 1, let only = entries.first, only.day == nil, only.kind == .buy {
                 grouped[key.portfolio, default: []].append(
                     Position(symbol: key.symbol, name: name, quantity: only.quantity, unitCost: only.price,
-                             currency: currency, costUnknown: !only.priceGiven))
+                             currency: currency, costUnknown: !only.priceGiven, isin: isins[key]))
             } else {
                 let trades = entries.map {
                     Trade(kind: $0.kind, day: $0.day, quantity: $0.quantity, price: $0.price,
@@ -250,7 +258,8 @@ enum CSVCodec {
                 }
                 grouped[key.portfolio, default: []].append(
                     Position(symbol: key.symbol, name: name, quantity: 0, unitCost: 0, currency: currency,
-                             costUnknown: entries.contains { $0.kind == .buy && !$0.priceGiven }, trades: trades))
+                             costUnknown: entries.contains { $0.kind == .buy && !$0.priceGiven }, trades: trades,
+                             isin: isins[key]))
             }
         }
         return portfolioOrder.map { Portfolio(name: $0, positions: grouped[$0] ?? []) }

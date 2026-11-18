@@ -68,7 +68,8 @@ enum WidgetData {
     static func load() async -> DepotEntry? {
         guard let fileData = try? Data(contentsOf: directory.appendingPathComponent("portfolios.json")),
               let file = try? JSONDecoder().decode(PortfolioFile.self, from: fileData),
-              let metaData = try? Data(contentsOf: directory.appendingPathComponent("meta.json")),
+              MarketData.configure(directory: directory) || true,
+              let metaData = try? Data(contentsOf: directory.appendingPathComponent(MarketData.metaFileName)),
               let meta = try? JSONDecoder().decode([String: SymbolMeta].self, from: metaData)
         else { return cached }
 

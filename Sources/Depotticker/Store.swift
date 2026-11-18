@@ -18,7 +18,9 @@ enum EditorContext: Identifiable {
 final class Store: ObservableObject {
     static var refreshInterval: Duration { MarketData.source.refreshInterval }
 
-    @Published var portfolios: [Portfolio] = []
+    @Published var portfolios: [Portfolio] = [] {
+        didSet { MarketData.register(portfolios: portfolios) }
+    }
     @Published var quotes: [String: LiveQuote] = [:]
     @Published var meta: [String: SymbolMeta] = [:]
     /// EUR value of one unit of each currency.
@@ -53,6 +55,10 @@ final class Store: ObservableObject {
     @Published private(set) var sourceConfig = SourceConfig()
     /// Day of the exchange rates in use, when they are the ECB's daily reference rates.
     @Published private(set) var ratesDate: Date?
+    /// Progress of the ISIN lookup (done, total) while it runs.
+    @Published private(set) var isinProgress: (done: Int, total: Int)?
+    /// Symbols whose ISIN the lookup could not find; they need it entered by hand.
+    @Published private(set) var unresolvedISINs: [String] = []
 
     /// True when amounts should currently be masked (menu bar on the Mac, totals on iPhone and iPad).
     var amountsHidden: Bool { autoHideAmounts && sharingDetected }
@@ -182,10 +188,43 @@ final class Store: ObservableObject {
         MarketData.config = config
         sourceConfig = config
         quotes.removeAll()
+        // Listing currency and venue differ between sources; each has its own cached facts.
+        meta = repository.loadMeta()
         lastError = nil
         WidgetCenter.shared.reloadAllTimelines()
         invalidateHistories()
-        Task { await refresh() }
+        Task {
+            if source == .boerse { await resolveISINs() }
+            await refresh()
+        }
+    }
+
+    /// Looks up the ISIN of every position that has none, in the public registers. Slow (a few
+    /// seconds per share) because the registers limit how often they may be asked.
+    func resolveISINs() async {
+        var seen = Set<String>()
+        let open = portfolios.flatMap(\.positions).filter { ($0.isin ?? "").isEmpty && seen.insert($0.symbol).inserted }
+        guard !open.isEmpty, isinProgress == nil else { return }
+        isinProgress = (0, open.count)
+        var missing: [String] = []
+        for (index, position) in open.enumerated() {
+            let names = [meta[position.symbol]?.name, position.name].compactMap { $0 }
+            if let found = await Instruments.isin(for: position.symbol, names: names) {
+                for p in portfolios.indices {
+                    for i in portfolios[p].positions.indices where portfolios[p].positions[i].symbol == position.symbol {
+                        portfolios[p].positions[i].isin = found.isin
+                    }
+                }
+                repository.save(portfolios)
+                loadedStamp = repository.stamp()
+            } else {
+                missing.append(position.symbol)
+            }
+            isinProgress = (index + 1, open.count)
+        }
+        isinProgress = nil
+        unresolvedISINs = missing
+        invalidateHistories()
     }
 
     // MARK: Import and export
@@ -203,7 +242,10 @@ final class Store: ObservableObject {
             selectedPortfolioID = nil
         }
         save()
-        Task { await refresh() }
+        Task {
+            if sourceConfig.source == .boerse { await resolveISINs() }
+            await refresh()
+        }
     }
 
     /// Adds an estimated purchase date to every position that has a cost but no date. Returns how many.
@@ -259,7 +301,10 @@ final class Store: ObservableObject {
             if let quote = merged[symbol] { quotes[symbol] = quote }
         }
         lastError = failure
-        if !merged.isEmpty { lastUpdate = Date() }
+        if !merged.isEmpty {
+            lastUpdate = Date()
+            MarketData.cache(quotes: merged)
+        }
     }
 
     private func loadMissingMeta(for symbols: [String]) async {
@@ -550,7 +595,10 @@ final class Store: ObservableObject {
         guard let index = portfolios.firstIndex(where: { $0.id == portfolioID }) else { return }
         portfolios[index].positions.append(position)
         save()
-        Task { await refresh() }
+        Task {
+            if sourceConfig.source == .boerse { await resolveISINs() }
+            await refresh()
+        }
     }
 
     func update(_ position: Position, in portfolioID: UUID, movingTo target: UUID) {

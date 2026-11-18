@@ -4,7 +4,7 @@ import Foundation
 /// A small Model Context Protocol server (JSON-RPC over stdio) so AI agents can read and edit the
 /// portfolios. Start it with `Depotticker --mcp`; the running app picks up changes within seconds.
 enum MCPServer {
-    static let version = "0.3"
+    static let version = "0.4"
 
     static func runBlocking() -> Never {
         Task.detached {
@@ -114,6 +114,7 @@ enum MCPServer {
     private static func describe(_ position: Position) -> [String: Any] {
         var row: [String: Any] = ["symbol": position.symbol, "name": position.name, "quantity": position.quantity,
                                   "cost_currency": position.currency]
+        if let isin = position.isin { row["isin"] = isin }
         if position.costUnknown { row["average_cost"] = NSNull() } else { row["average_cost"] = position.unitCost }
         if !position.trades.isEmpty {
             row["transactions"] = position.orderedTrades.map {
@@ -137,6 +138,8 @@ enum MCPServer {
     private static func call(_ name: String, _ arguments: [String: Any]) async throws -> String {
         let repository = PortfolioRepository()
         MarketData.configure(directory: repository.directory)
+        // This process ends after its answer, so it waits for the exchange files instead of reading them in the background.
+        DeutscheBoerse.blocking = true
         var portfolios = repository.load()
 
         func text(_ key: String) throws -> String {
@@ -288,6 +291,7 @@ enum MCPServer {
     private static func valuation(_ portfolios: [Portfolio], repository: PortfolioRepository) async throws -> [String: Any] {
         var seen = Set<String>()
         let symbols = portfolios.flatMap(\.positions).map(\.symbol).filter { seen.insert($0).inserted }
+        MarketData.register(portfolios: portfolios)
         var meta = repository.loadMeta()
         for symbol in symbols where meta[symbol] == nil {
             if let fresh = try? await MarketData.chart(symbol, range: .day).meta { meta[symbol] = fresh }

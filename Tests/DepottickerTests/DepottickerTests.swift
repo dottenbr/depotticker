@@ -240,4 +240,84 @@ final class SourceTests: XCTestCase {
         let news = try await MarketData.news(symbol: "AAPL", name: "Apple")
         print("news:", news.first?.title ?? "none", news.first?.publisher ?? "")
     }
+
+    func testBoerseParsesAndTracksTrades() {
+        let wanted: Set<String> = ["DE0007164600"]
+        func line(_ time: String, _ price: Double, _ quantity: Int, system: String = "CLOB", isin: String = "DE0007164600") -> Substring {
+            Substring("{\"messageId\":\"x\",\"tradingDateAndTime\":\"\(time)\",\"instrumentIdentificationCode\":\"\(isin)\",\"price\":\(price),\"priceCurrency\":\"EUR\",\"priceNotation\":\"MONE\",\"quantity\":\(quantity),\"tradingSystem\":\"\(system)\"}")
+        }
+        XCTAssertNil(DeutscheBoerse.parse(line: line("2026-11-17T10:00:00.1Z", 200, 5, isin: "US0378331005"), wanted: wanted, venue: .xetra))
+        XCTAssertNil(DeutscheBoerse.parse(line: line("2026-11-17T10:00:00.1Z", 200, 0), wanted: wanted, venue: .xetra))
+        var state = DeutscheBoerse.State()
+        let rows = [
+            line("2026-11-17T16:35:10.000000001Z", 201.3, 100),
+            line("2026-11-17T20:50:59.5Z", 202, 8, system: "RETL"),
+            line("2026-11-17T09:00:00Z", 199, 10),
+            line("2026-11-18T08:05:00Z", 203.5, 20),
+        ]
+        for row in rows.prefix(3) {
+            DeutscheBoerse.apply(DeutscheBoerse.parse(line: row, wanted: wanted, venue: .xetra)!, venue: .xetra, to: &state)
+        }
+        // The official price is the last order-book trade; the evening retail trade is kept apart.
+        XCTAssertEqual(state.last["DETR"]?["DE0007164600"]?.price, 201.3)
+        XCTAssertEqual(state.late["DETR"]?["DE0007164600"]?.price, 202)
+        XCTAssertEqual(state.bars["DETR"]?["DE0007164600"]?.count, 2)
+        DeutscheBoerse.apply(DeutscheBoerse.parse(line: rows[3], wanted: wanted, venue: .xetra)!, venue: .xetra, to: &state)
+        XCTAssertEqual(state.previous["DETR"]?["DE0007164600"], 201.3)
+        XCTAssertEqual(state.history["DETR"]?["DE0007164600"]?["2026-11-17"], 201.3)
+        XCTAssertEqual(state.last["DETR"]?["DE0007164600"]?.price, 203.5)
+        XCTAssertEqual(state.bars["DETR"]?["DE0007164600"]?.count, 1)
+    }
+
+    func testGzipLinesAreInflatedInPieces() throws {
+        // "a\nbb\nccc" gzipped.
+        let gz = Data(base64Encoded: "H4sIAAAAAAAC/0vkSkriSk5OBgDlN5rECAAAAA==")!
+        var lines: [String] = []
+        let inflater = DeutscheBoerse.LineInflater { lines.append(String($0)) }
+        XCTAssertTrue(inflater.feed(gz.prefix(7)))
+        XCTAssertTrue(inflater.feed(gz.dropFirst(7)))
+        inflater.finish()
+        XCTAssertEqual(lines, ["a", "bb", "ccc"])
+    }
+
+    func testSymbolTargetsForTheRegisters() {
+        XCTAssertEqual(Instruments.target(for: "AAPL")?.exchanges, ["US"])
+        XCTAssertEqual(Instruments.target(for: "SAP.DE")?.ticker, "SAP")
+        XCTAssertEqual(Instruments.target(for: "SAP.DE")?.exchanges, ["GY", "GR"])
+        XCTAssertTrue(Instruments.looksLikeISIN("de0007164600"))
+        XCTAssertFalse(Instruments.looksLikeISIN("SAP"))
+        XCTAssertEqual(Instruments.words("Taiwan Semiconductor Mfg. Co."), ["taiwan", "semiconductor", "mfg", "co"])
+    }
+
+    /// Reads real exchange files and compares with the previous source. Run with DEPOTTICKER_LIVE=1.
+    func testLiveBoerseMatchesYahoo() async throws {
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["DEPOTTICKER_LIVE"] == "1")
+        let names = ["SAP.DE": "SAP SE", "AAPL": "Apple Inc.", "VGWL.DE": "Vanguard FTSE All-World UCITS ETF",
+                     "HY9H.F": "SK hynix Inc.", "TSM": "Taiwan Semiconductor Manufacturing", "VTI": "Vanguard Total Stock Market ETF",
+                     "RHM.DE": "Rheinmetall AG", "ASML.AS": "ASML Holding N.V.", "BA.L": "BAE Systems plc"]
+        var isins: [String: String] = [:]
+        for (symbol, name) in names.sorted(by: { $0.key < $1.key }) {
+            let found = await Instruments.isin(for: symbol, names: [name])
+            print("ISIN \(symbol): \(found?.isin ?? "not found") \(found?.name ?? "")")
+            if let found { isins[symbol] = found.isin }
+        }
+        XCTAssertEqual(isins["SAP.DE"], "DE0007164600")
+        XCTAssertEqual(isins["AAPL"], "US0378331005")
+        MarketData.register(isins: isins)
+        MarketData.config = SourceConfig(source: .boerse)
+        DeutscheBoerse.blocking = true
+        let started = Date()
+        let quotes = try await MarketData.quotes(Array(isins.keys))
+        print("first read took \(Int(Date().timeIntervalSince(started))) s")
+        let yahoo = try await Yahoo.spark(Array(isins.keys) + ["EURUSD=X", "EURGBP=X"])
+        for symbol in isins.keys.sorted() {
+            let meta = try? await MarketData.chart(symbol, range: .day)
+            print("\(symbol): boerse \(quotes[symbol]?.price ?? -1) prev \(quotes[symbol]?.previousClose ?? -1) late \(quotes[symbol]?.extendedPrice ?? -1) [\(meta?.meta.exchange ?? "?") \(meta?.meta.currency ?? "?") bars \(meta?.points.count ?? 0)]  yahoo \(yahoo[symbol]?.price ?? -1) prev \(yahoo[symbol]?.previousClose ?? -1)")
+        }
+        print("EURUSD \(yahoo["EURUSD=X"]?.price ?? -1) EURGBP \(yahoo["EURGBP=X"]?.price ?? -1)")
+        let sap = try XCTUnwrap(quotes["SAP.DE"]), sapYahoo = try XCTUnwrap(yahoo["SAP.DE"])
+        XCTAssertEqual(sap.previousClose, sapYahoo.previousClose, accuracy: sapYahoo.previousClose * 0.002)
+        let backlog = await DeutscheBoerse.backlog()
+        print("backlog after the first round: \(backlog) minute files")
+    }
 }

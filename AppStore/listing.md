@@ -25,12 +25,12 @@ Depotticker shows every share and fund you own, across all your brokers, in one 
 • Real gains. Value, today's change and total gain in euros, with costs kept in the currency you paid in.
 • Purchases and sales. Record each one with date and price, or let the app estimate missing dates from your average price.
 • Charts that read well. Pinch to change the range, drag to measure a move, with volume, moving average and your average cost.
-• Prices from a licensed vendor with your own API key (EODHD), sent straight from your device.
+• Free prices from Xetra, Frankfurt and Tradegate, 15 minutes delayed, read straight from the exchanges' public files. Or a licensed vendor with your own API key.
 • Widgets in three sizes, and on the Mac a compact menu bar item that can hide amounts while you share your screen.
 • Import and export as CSV, including the Raymond James export.
 • Your data stays yours. Positions are stored on your devices and synced through your own iCloud. There is no account and no tracking.
 
-Depotticker is not a broker and gives no investment advice. Prices are delayed by about 15 minutes. A price source with your own API key is required to show prices.
+Depotticker is not a broker and gives no investment advice. Prices are delayed by about 15 minutes.
 
 ## Keywords (100 characters)
 
@@ -42,11 +42,11 @@ Data collection: none. The app sends ticker symbols to the price provider to fet
 
 ## Review notes
 
-No sign-in is needed. Prices need an API key from the data vendor EODHD: open the menu at the top right, choose Price Source…, select EODHD and enter the key given here: <key for review>. Then add a position with the + button (for example AAPL, 10 shares at 150) to see every screen.
+No sign-in is needed. Open the menu at the top right, choose Price Source… and select “German exchanges (free, 15 minutes delayed)”. Then add a position with the + button (for example SAP, 10 shares at 150) to see every screen.
 
 ## Before submitting
 
 - Done in 0.3: the App Store builds contain no Yahoo code; prices come from EODHD with the user's own key, exchange rates from the ECB.
 - No vendor has been asked to confirm the user-key model; EODHD's terms neither permit nor forbid it. If App Review asks for proof under guideline 5.2.2, the answer is that each user is EODHD's own customer and the app holds no licence of its own.
-- Give App Review a way to see prices: a key for the review notes, or a demo mode.
+- App Review can see prices with the free German-exchanges source; no key is needed.
 - Sign with an Apple Distribution certificate; enable iCloud (key-value storage) and the app group `group.com.depotticker.app`.

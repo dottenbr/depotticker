@@ -21,11 +21,20 @@
 <h2 id="source">Price source</h2>
 <p>Share prices are licensed data, so Depotticker has no built-in feed. You choose where prices come from under <em>Settings › Price source</em> on the Mac, or in the import and export menu under <em>Price Source…</em> on any device.</p>
 <ul>
+<li><strong>German exchanges (free, 15 minutes delayed):</strong> no account and no key. EU law obliges exchanges to publish their prices free of charge after 15 minutes, and Deutsche Börse does so for Xetra, Börse Frankfurt and Tradegate. Depotticker downloads these files straight to your device and keeps only your own shares. What to know:
+<ul>
+<li>Each position needs its ISIN. The app looks it up in two public registers (ESMA and OpenFIGI) when you choose this source, which takes a few seconds per share; where it finds none, edit the position and enter the ISIN yourself.</li>
+<li>Prices are in euros from the German venue: Xetra for symbols ending in <code>.DE</code>, otherwise Tradegate, then Frankfurt. A US share is shown at its German price, so it already reflects the day's move before the US market opens. Costs stay in the currency you paid in.</li>
+<li>Shares that are not traded on these venues show no price. This affects US-domiciled funds such as VTI in particular.</li>
+<li>The files hold no history. Charts fill up from the day you start using this source, and purchase dates cannot be estimated from it.</li>
+<li>The file service limits how fast files may be fetched. After starting, the newest prices arrive within about a minute; shares that trade rarely show yesterday's price until their last trade of the day has been found.</li>
+<li>Data use is up to about 50 MB on a full trading day on the Mac. On iPhone and iPad the app reads only the last two hours of trading plus the previous day's file (about 40 MB once per day), so prefer Wi-Fi.</li>
+</ul></li>
 <li><strong>EODHD (your own API key):</strong> a licensed data vendor covering Xetra and other European exchanges, funds and US shares. Sign up at <a href="https://eodhd.com/pricing">eodhd.com</a>, copy your API key and paste it into the app. The app then asks EODHD directly from your device. Prices are delayed by about 15 minutes and refresh every five minutes. The free key allows 20 requests a day, which is only enough to try the app with a few shares; a real portfolio needs one of EODHD's paid personal plans. Key figures such as P/E are not included.</li>
 <li><strong>Yahoo Finance (unofficial):</strong> only in the Mac version downloaded from this website. It uses Yahoo's undocumented web endpoints. Yahoo's terms do not permit automated access, so this source is not licensed and can stop working at any time. If you used Depotticker before version 0.3 it stays selected until you switch.</li>
 <li><strong>None:</strong> your positions and costs are kept, but no prices or values are shown.</li>
 </ul>
-<p>With a licensed source, exchange rates are the European Central Bank's euro reference rates. They are set once per working day at about 16:00 CET, so euro values of foreign shares can differ slightly from a broker that converts at the live rate. The overview names the sources and the day of the rates in use.</p>
+<p>Except with Yahoo, exchange rates are the European Central Bank's euro reference rates. They are set once per working day at about 16:00 CET, so euro values of foreign shares can differ slightly from a broker that converts at the live rate. The overview names the sources and the day of the rates in use.</p>
 <p>The key is stored on each device separately; enter it once on your Mac, iPhone and iPad.</p>
 
 <h2 id="positions">Portfolios and positions</h2>

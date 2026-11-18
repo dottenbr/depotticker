@@ -4,6 +4,8 @@ import Foundation
 /// built-in feed: each user picks a source and, for a licensed vendor, enters their own key.
 enum DataSource: String, Codable, CaseIterable, Identifiable {
     case none
+    /// Deutsche Börse's free delayed trade files (Xetra, Frankfurt, Tradegate), read on this device.
+    case boerse
     /// EODHD (eodhd.com) with the user's own API token.
     case eodhd
     /// Yahoo Finance's undocumented endpoints. Only in the direct-download build.
@@ -13,15 +15,16 @@ enum DataSource: String, Codable, CaseIterable, Identifiable {
 
     static var available: [DataSource] {
         #if DIRECT
-        return [.none, .eodhd, .yahoo]
+        return [.none, .boerse, .eodhd, .yahoo]
         #else
-        return [.none, .eodhd]
+        return [.none, .boerse, .eodhd]
         #endif
     }
 
     var title: String {
         switch self {
         case .none: return "None"
+        case .boerse: return "German exchanges (free, 15 minutes delayed)"
         case .eodhd: return "EODHD (your own API key)"
         case .yahoo: return "Yahoo Finance (unofficial)"
         }
@@ -33,6 +36,7 @@ enum DataSource: String, Codable, CaseIterable, Identifiable {
     var attribution: String {
         switch self {
         case .none: return ""
+        case .boerse: return "Prices: Deutsche Börse delayed data (Xetra, Frankfurt, Tradegate), 15 minutes delayed · Exchange rates: European Central Bank"
         case .eodhd: return "Prices: EODHD, delayed · Exchange rates: European Central Bank"
         case .yahoo: return "Prices and exchange rates: Yahoo Finance (unofficial)"
         }
@@ -42,12 +46,19 @@ enum DataSource: String, Codable, CaseIterable, Identifiable {
     var refreshInterval: Duration {
         switch self {
         case .yahoo: return .seconds(20)
+        case .boerse: return .seconds(60)
         default: return .seconds(300)
         }
     }
 
     /// How long an intraday series stays fresh.
-    var intradayLifetime: TimeInterval { self == .yahoo ? 100 : 1_800 }
+    var intradayLifetime: TimeInterval {
+        switch self {
+        case .yahoo: return 100
+        case .boerse: return 60
+        default: return 1_800
+        }
+    }
 }
 
 enum MarketDataError: LocalizedError {
@@ -56,6 +67,9 @@ enum MarketDataError: LocalizedError {
     case unsupported
     case http(Int)
     case malformed
+    case missingISIN
+    case unknownSymbol
+    case noHistory
 
     var errorDescription: String? {
         switch self {
@@ -66,6 +80,9 @@ enum MarketDataError: LocalizedError {
         case .http(402), .http(429): return "The price source's request limit is reached"
         case .http(let code): return "Price source returned HTTP \(code)"
         case .malformed: return "Unexpected response from the price source"
+        case .missingISIN: return "This position has no ISIN yet, which the German exchanges' data needs. Edit the position to set it."
+        case .unknownSymbol: return "Not traded on Xetra, Frankfurt or Tradegate in the last days"
+        case .noHistory: return "The exchanges' free data has no price history. This chart fills up from the day you started using it."
         }
     }
 }
@@ -110,10 +127,20 @@ enum MarketData {
 
     static var source: DataSource { config.source }
 
+    /// Listing currency and venue of a symbol differ between sources (a US share is quoted in euros on
+    /// Tradegate), so each source keeps its own file of cached symbol facts.
+    static var metaFileName: String {
+        switch source {
+        case .none, .yahoo: return "meta.json"
+        default: return "meta-\(source.rawValue).json"
+        }
+    }
+
     /// Reads the configuration from the data folder. `DEPOTTICKER_SOURCE=eodhd:<key>` overrides it
     /// (used for demos and tests). Returns false when nothing has been chosen yet.
     @discardableResult
     static func configure(directory: URL) -> Bool {
+        lock.lock(); self.directory = directory; lock.unlock()
         if let override = ProcessInfo.processInfo.environment["DEPOTTICKER_SOURCE"], !override.isEmpty {
             let parts = override.split(separator: ":", maxSplits: 1).map(String.init)
             if let source = DataSource(rawValue: parts[0]), DataSource.available.contains(source) {
@@ -137,7 +164,59 @@ enum MarketData {
             guard current.key(.eodhd) != nil else { throw MarketDataError.missingKey }
             return .eodhd
         case .yahoo: return .yahoo
+        case .boerse: return .boerse
         }
+    }
+
+    // MARK: ISINs
+
+    private static var isinMap: [String: String] = [:]
+    private static var directory: URL?
+
+    /// The exchanges' files are keyed by ISIN; the app tells the source which ISIN each symbol has.
+    static func register(isins: [String: String]) {
+        lock.lock(); isinMap = isins; lock.unlock()
+    }
+
+    static func register(portfolios: [Portfolio]) {
+        var map: [String: String] = [:]
+        for position in portfolios.flatMap(\.positions) {
+            if let isin = position.isin, !isin.isEmpty { map[position.symbol] = isin }
+        }
+        register(isins: map)
+    }
+
+    static var registeredISINs: [String: String] {
+        lock.lock(); defer { lock.unlock() }
+        return isinMap
+    }
+
+    static func isin(for symbol: String) -> String? {
+        lock.lock(); defer { lock.unlock() }
+        return isinMap[symbol]
+    }
+
+    // MARK: Quote cache for the widget
+
+    /// A widget must not download whole-market files, so the app leaves its latest quotes for it.
+    static var isExtension: Bool { Bundle.main.bundleURL.pathExtension == "appex" }
+
+    private struct CachedQuote: Codable {
+        var price: Double
+        var previousClose: Double
+    }
+
+    static func cache(quotes: [String: LiveQuote]) {
+        guard source == .boerse, let directory, !quotes.isEmpty else { return }
+        let slim = quotes.mapValues { CachedQuote(price: $0.price, previousClose: $0.previousClose) }
+        try? JSONEncoder().encode(slim).write(to: directory.appendingPathComponent("quotes.json"), options: .atomic)
+    }
+
+    private static func cachedQuotes() throws -> [String: LiveQuote] {
+        guard let directory, let data = try? Data(contentsOf: directory.appendingPathComponent("quotes.json")),
+              let slim = try? JSONDecoder().decode([String: CachedQuote].self, from: data)
+        else { throw MarketDataError.malformed }
+        return slim.mapValues { LiveQuote(price: $0.price, previousClose: $0.previousClose, spark: []) }
     }
 
     // MARK: Prices
@@ -147,6 +226,7 @@ enum MarketData {
         guard !symbols.isEmpty else { return [:] }
         switch try ready() {
         case .eodhd: return try await EODHD.quotes(symbols)
+        case .boerse: return try await Self.isExtension ? cachedQuotes() : DeutscheBoerse.quotes(symbols)
         case .yahoo:
             #if DIRECT
             return try await batched(symbols, size: Yahoo.batchSize) { try await Yahoo.spark($0) }
@@ -162,6 +242,7 @@ enum MarketData {
         guard !symbols.isEmpty, let source = try? ready() else { return [:] }
         switch source {
         case .eodhd: return await EODHD.series(symbols, range: range)
+        case .boerse: return await DeutscheBoerse.series(symbols, range: range)
         case .yahoo:
             #if DIRECT
             return (try? await batched(symbols, size: Yahoo.batchSize) { try await Yahoo.series($0, range: range) }) ?? [:]
@@ -175,6 +256,7 @@ enum MarketData {
     static func chart(_ symbol: String, range: ChartRange) async throws -> ChartData {
         switch try ready() {
         case .eodhd: return try await EODHD.chart(symbol, range: range)
+        case .boerse: return try await DeutscheBoerse.chart(symbol, range: range)
         case .yahoo:
             #if DIRECT
             return try await Yahoo.chart(symbol, range: range)
@@ -189,6 +271,7 @@ enum MarketData {
     static func dailyHistory(_ symbol: String) async throws -> DailyHistory {
         switch try ready() {
         case .eodhd: return try await EODHD.dailyHistory(symbol)
+        case .boerse: return try await DeutscheBoerse.dailyHistory(symbol)
         case .yahoo:
             #if DIRECT
             return try await Yahoo.dailyHistory(symbol)
@@ -202,6 +285,7 @@ enum MarketData {
     static func search(_ text: String) async throws -> [SearchResult] {
         switch try ready() {
         case .eodhd: return try await EODHD.search(text)
+        case .boerse: return try await Instruments.search(text)
         case .yahoo:
             #if DIRECT
             return try await Yahoo.search(text)
@@ -222,6 +306,7 @@ enum MarketData {
     static func news(symbol: String, name: String) async throws -> [NewsItem] {
         switch try ready() {
         case .eodhd: return try await EODHD.news(symbol)
+        case .boerse: return []
         case .yahoo:
             #if DIRECT
             return try await Yahoo.news(symbol: symbol, name: name)

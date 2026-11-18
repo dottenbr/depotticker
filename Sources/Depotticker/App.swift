@@ -8,6 +8,8 @@ enum Launcher {
         // `Depotticker --mcp` runs the Model Context Protocol server instead of the app.
         if CommandLine.arguments.contains("--mcp") { MCPServer.runBlocking() }
         // `Depotticker --import file.csv` imports a CSV (own layout or a supported broker export).
+        // `Depotticker --isins` looks up the ISIN of every position that has none.
+        if CommandLine.arguments.contains("--isins") { CommandLineImport.resolveISINs() }
         if let index = CommandLine.arguments.firstIndex(of: "--import") {
             CommandLineImport.run(Array(CommandLine.arguments.dropFirst(index + 1)))
         }
@@ -322,6 +324,37 @@ enum CommandLineImport {
             let outcome = await PurchaseEstimator.fillMissingDates(in: start, style: style, portfolio: only, before: before)
             repository.save(outcome.portfolios)
             print("Estimated the purchase date of \(outcome.estimated) position(s).")
+            exit(0)
+        }
+        dispatchMain()
+    }
+
+    /// Looks up missing ISINs in the public registers and saves them (a backup is kept).
+    static func resolveISINs() -> Never {
+        let repository = PortfolioRepository()
+        var portfolios = repository.load()
+        let meta = repository.loadMeta()
+        repository.backup(portfolios)
+        Task.detached {
+            var seen = Set<String>()
+            let open = portfolios.flatMap(\.positions).filter { ($0.isin ?? "").isEmpty && seen.insert($0.symbol).inserted }
+            var missing: [String] = []
+            for position in open {
+                let name = meta[position.symbol]?.name ?? position.name
+                guard let found = await Instruments.isin(for: position.symbol, names: [name, position.name]) else {
+                    print("\(position.symbol): no ISIN found (\(name))")
+                    missing.append(position.symbol)
+                    continue
+                }
+                print("\(position.symbol): \(found.isin)  \(found.name)")
+                for p in portfolios.indices {
+                    for i in portfolios[p].positions.indices where portfolios[p].positions[i].symbol == position.symbol {
+                        portfolios[p].positions[i].isin = found.isin
+                    }
+                }
+                repository.save(portfolios)
+            }
+            print("\(open.count - missing.count) of \(open.count) found." + (missing.isEmpty ? "" : " Missing: \(missing.joined(separator: ", "))"))
             exit(0)
         }
         dispatchMain()

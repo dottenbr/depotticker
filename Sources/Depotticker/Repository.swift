@@ -31,7 +31,7 @@ struct PortfolioRepository {
     }
 
     var localURL: URL { directory.appendingPathComponent("portfolios.json") }
-    var metaURL: URL { directory.appendingPathComponent("meta.json") }
+    var metaURL: URL { directory.appendingPathComponent(MarketData.metaFileName) }
 
     static func decode(_ data: Data) -> [Portfolio]? {
         (try? JSONDecoder().decode(PortfolioFile.self, from: data))?.portfolios
