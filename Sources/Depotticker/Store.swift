@@ -55,6 +55,9 @@ final class Store: ObservableObject {
     @Published private(set) var sourceConfig = SourceConfig()
     /// Day of the exchange rates in use, when they are the ECB's daily reference rates.
     @Published private(set) var ratesDate: Date?
+    /// Minutes the German-exchanges source still needs to read the rest of today's trade files. Until
+    /// then a share that last traded earlier today still shows an older price.
+    @Published private(set) var catchUpMinutes = 0
     /// Progress of the ISIN lookup (done, total) while it runs.
     @Published private(set) var isinProgress: (done: Int, total: Int)?
     /// Symbols whose ISIN the lookup could not find; they need it entered by hand.
@@ -321,6 +324,8 @@ final class Store: ObservableObject {
             if let quote = merged[symbol] { quotes[symbol] = quote }
         }
         lastError = failure
+        let backlog = MarketData.source == .boerse ? await DeutscheBoerse.backlog() : 0
+        catchUpMinutes = (backlog + DeutscheBoerse.requestsPerRound - 1) / DeutscheBoerse.requestsPerRound
         if !merged.isEmpty {
             lastUpdate = Date()
             MarketData.cache(quotes: merged)

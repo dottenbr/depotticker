@@ -217,6 +217,10 @@ struct SidebarView: View {
                     .foregroundStyle(.orange)
             } else if let error = store.lastError {
                 Text(error).lineLimit(1)
+            } else if store.catchUpMinutes > 1 {
+                Text("Still reading today's trades · about \(Duration.seconds(store.catchUpMinutes * 60).formatted(.units(allowed: [.hours, .minutes], width: .abbreviated))) left")
+                    .lineLimit(1)
+                    .help("The exchanges publish one file per minute and limit how fast they may be read. Until the earlier files of today are in, a share that has not traded in the last minutes shows an older price.")
             } else if let date = store.lastUpdate {
                 Text("\(MarketData.source == .yahoo ? "Live" : "Delayed") · updated \(date.formatted(date: .omitted, time: .standard))")
             } else {
