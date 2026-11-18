@@ -209,9 +209,11 @@ struct SidebarView: View {
     private var footer: some View {
         HStack(spacing: 6) {
             Circle()
-                .fill(store.lastError == nil && store.sourceConfig.source != .none ? Color.up : Color.orange)
+                .fill(store.lastError == nil && store.dataProblem == nil && store.sourceConfig.source != .none ? Color.up : Color.orange)
                 .frame(width: 6, height: 6)
-            if store.sourceConfig.source == .none || (store.sourceConfig.source.needsKey && store.sourceConfig.key(store.sourceConfig.source) == nil) {
+            if let problem = store.dataProblem {
+                Text(problem).lineLimit(2).foregroundStyle(.orange)
+            } else if store.sourceConfig.source == .none || (store.sourceConfig.source.needsKey && store.sourceConfig.key(store.sourceConfig.source) == nil) {
                 Button("No price source · Choose…") { store.showSourceSettings = true }
                     .buttonStyle(.plain)
                     .foregroundStyle(.orange)

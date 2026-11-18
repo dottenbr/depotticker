@@ -29,6 +29,10 @@ struct DepotEntry: TimelineEntry, Codable {
     var dayPct: Double { totals.dayPct }
     var gainPct: Double { totals.gainPct }
 
+    /// Shown when there is nothing to value yet. The sample figures below are for the widget gallery
+    /// only and must never stand in for the user's own.
+    static var empty: DepotEntry { DepotEntry(date: Date(), value: 0, cost: 0, gain: 0, day: 0, portfolios: [], movers: []) }
+
     static let placeholder = DepotEntry(
         date: Date(), value: 125_480, cost: 98_000, gain: 27_480, day: 842,
         portfolios: [
@@ -118,12 +122,12 @@ struct DepotProvider: TimelineProvider {
             completion(WidgetData.cached ?? .placeholder)
             return
         }
-        Task { completion(await WidgetData.load() ?? .placeholder) }
+        Task { completion(await WidgetData.load() ?? .empty) }
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<DepotEntry>) -> Void) {
         Task {
-            let entry = await WidgetData.load() ?? .placeholder
+            let entry = await WidgetData.load() ?? .empty
             let next = Date().addingTimeInterval(15 * 60)
             completion(Timeline(entries: [entry], policy: .after(next)))
         }
@@ -137,10 +141,20 @@ struct DepotWidgetView: View {
     var entry: DepotEntry
 
     var body: some View {
-        switch family {
-        case .systemSmall: small
-        case .systemMedium: medium
-        default: large
+        if entry.portfolios.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                title
+                Text("Open Depotticker to add your positions and choose a price source.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        } else {
+            switch family {
+            case .systemSmall: small
+            case .systemMedium: medium
+            default: large
+            }
         }
     }
 

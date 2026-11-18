@@ -41,8 +41,8 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$app/Contents/Framewor
 cp "$products/Depotticker" "$app/Contents/MacOS/Depotticker"
 cp Support/AppIcon.icns "$app/Contents/Resources/AppIcon.icns"
 ditto "$products/Sparkle.framework" "$app/Contents/Frameworks/Sparkle.framework"
-# The public half of the update-signing key; the private half stays in the login keychain.
-sed "s|__SPARKLE_PUBLIC_KEY__|$($sparkle/generate_keys -p)|" Support/Info.plist > "$app/Contents/Info.plist"
+# Info.plist carries the public half of the update-signing key; the private half stays in the login keychain.
+cp Support/Info.plist "$app/Contents/Info.plist"
 
 # Widget extension (small, medium and large desktop widgets).
 appex="$app/Contents/PlugIns/DepottickerWidget.appex"

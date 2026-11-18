@@ -13,19 +13,44 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  app:
-    name: Build and test the app
+  direct:
+    name: Direct-download Mac app
     runs-on: macos-26
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - name: Versions agree
+        run: |
+          plist=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" Support/Info.plist)
+          build=$(/usr/libexec/PlistBuddy -c "Print CFBundleVersion" Support/Info.plist)
+          grep -q "MARKETING_VERSION: \"$plist\"" project.yml || { echo "project.yml and Support/Info.plist disagree on the version"; exit 1; }
+          grep -q "CURRENT_PROJECT_VERSION: $build$" project.yml || { echo "project.yml and Support/Info.plist disagree on the build number"; exit 1; }
       - name: Unit tests
         run: swift test
-      - name: Release build
-        run: swift build -c release
+      # The app as it ships: release build, widget extension, bundle, ad hoc signature.
+      - name: Build the app bundle
+        run: ./build.sh
+
+  appstore:
+    name: App Store builds (Mac, iPhone and iPad)
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate the Xcode project
+        run: |
+          command -v xcodegen >/dev/null || brew install xcodegen
+          xcodegen
+      # These builds have no Yahoo and no Sparkle code and include the widget; nothing else compiles them.
+      - name: Build for macOS
+        run: xcodebuild build -project Depotticker.xcodeproj -scheme Depotticker -destination 'generic/platform=macOS' CODE_SIGNING_ALLOWED=NO -quiet
+      - name: Build for iOS
+        run: xcodebuild build -project Depotticker.xcodeproj -scheme Depotticker -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO -quiet
 
   site:
-    name: Build the website
+    name: Website
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
