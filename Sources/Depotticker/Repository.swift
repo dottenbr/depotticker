@@ -51,14 +51,31 @@ struct PortfolioRepository {
 
     func load() -> [Portfolio] { loadChecked().portfolios }
 
-    /// A file that exists but cannot be read (damaged, or written by a newer version) must not be
-    /// lost when the next save replaces it: a copy is set aside and its name returned.
-    func loadChecked() -> (portfolios: [Portfolio], unreadable: URL?) {
+    /// What a load could not read, and where the untouched original was kept.
+    struct LoadProblem {
+        /// Positions left out; nil when the whole file was unreadable.
+        var skipped: Int?
+        var copy: URL
+
+        var message: String {
+            let what = skipped.map { "\($0) position\($0 == 1 ? "" : "s") could not be read and \($0 == 1 ? "was" : "were") left out." }
+                ?? "The portfolio file could not be read."
+            return "\(what) The original was kept as \(copy.lastPathComponent) in the data folder."
+        }
+    }
+
+    /// A file that cannot be read in full (damaged, or written by a newer version) must not be lost
+    /// when the next save replaces it: the original is set aside first.
+    func loadChecked() -> (portfolios: [Portfolio], problem: LoadProblem?) {
         guard let data = try? Data(contentsOf: localURL), !data.isEmpty else { return ([], nil) }
-        if let portfolios = Self.decode(data) { return (portfolios, nil) }
+        let skipped = SkippedEntries()
+        let decoder = JSONDecoder()
+        decoder.userInfo[SkippedEntries.key] = skipped
+        let portfolios = (try? decoder.decode(PortfolioFile.self, from: data))?.portfolios
+        if let portfolios, skipped.count == 0 { return (portfolios, nil) }
         let copy = directory.appendingPathComponent("portfolios.unreadable-\(Trade.dayFormatter.string(from: Date())).json")
         try? data.write(to: copy, options: .atomic)
-        return ([], copy)
+        return (portfolios ?? [], LoadProblem(skipped: portfolios == nil ? nil : skipped.count, copy: copy))
     }
 
     func save(_ portfolios: [Portfolio]) {

@@ -159,16 +159,36 @@ final class RepositoryTests: XCTestCase {
         }
         let repository = PortfolioRepository()
         XCTAssertEqual(repository.directory.path, directory.path)
-        XCTAssertNil(repository.loadChecked().unreadable)   // no file yet
+        XCTAssertNil(repository.loadChecked().problem)   // no file yet
 
-        // One position lacks its quantity, which makes the whole file undecodable.
-        let damaged = Data(#"{"portfolios":[{"name":"A","positions":[{"symbol":"SAP.DE","name":"SAP"}]}]}"#.utf8)
+        let damaged = Data("{ not json".utf8)
         try damaged.write(to: repository.localURL)
         let loaded = repository.loadChecked()
         XCTAssertTrue(loaded.portfolios.isEmpty)
-        let copy = try XCTUnwrap(loaded.unreadable)
+        let problem = try XCTUnwrap(loaded.problem)
+        XCTAssertNil(problem.skipped)
         repository.save([Portfolio(name: "New")])
-        XCTAssertEqual(try Data(contentsOf: copy), damaged)
+        XCTAssertEqual(try Data(contentsOf: problem.copy), damaged)
         XCTAssertEqual(repository.load().map(\.name), ["New"])
+        XCTAssertNil(repository.loadChecked().problem)
+    }
+
+    func testOneBadPositionIsLeftOutAndTheRestStillLoads() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        setenv("DEPOTTICKER_DATA", directory.path, 1)
+        defer {
+            unsetenv("DEPOTTICKER_DATA")
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let repository = PortfolioRepository()
+        // The second position lacks its quantity.
+        let file = Data(#"{"portfolios":[{"id":"11111111-1111-4111-8111-111111111111","name":"A","positions":[{"symbol":"SAP.DE","name":"SAP","quantity":5,"unitCost":120},{"symbol":"AAPL","name":"Apple"}]}]}"#.utf8)
+        try file.write(to: repository.localURL)
+        let loaded = repository.loadChecked()
+        XCTAssertEqual(loaded.portfolios.first?.positions.map(\.symbol), ["SAP.DE"])
+        let problem = try XCTUnwrap(loaded.problem)
+        XCTAssertEqual(problem.skipped, 1)
+        XCTAssertEqual(try Data(contentsOf: problem.copy), file)
+        XCTAssertTrue(problem.message.hasPrefix("1 position could not be read and was left out."))
     }
 }
