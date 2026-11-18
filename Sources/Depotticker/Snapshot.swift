@@ -20,7 +20,11 @@ enum Snapshot {
             store.selectedSymbol = symbol
         }
         try? await Task.sleep(for: .seconds(8))
-        guard let window = NSApp.windows.first(where: { $0.title == "Depotticker" }) else { return }
+        guard let window = NSApp.windows.first(where: { $0.title == "Depotticker" }) else {
+            // No window, typically because the screen is locked: say so instead of running on unseen.
+            FileHandle.standardError.write(Data("snapshot: no main window (is the screen locked?)\n".utf8))
+            exit(1)
+        }
         window.sharingType = .readOnly
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
