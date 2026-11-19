@@ -79,7 +79,7 @@
 <li><strong>Several brokers and currencies:</strong> the same share can sit in several portfolios; its page lists each one. Costs stay in the currency you paid in. Totals are shown in euros, converting foreign costs at today's exchange rate, so the gain equals your broker's gain converted to euros.</li>
 <li><strong>Several purchases in a file:</strong> add the optional columns <code>Date</code> and <code>Type</code> (Buy or Sell) and write one row per purchase or sale; in such a row Quantity is the number of shares bought or sold and Average cost is the price paid or received. Rows for the same portfolio and symbol become one position. Dates can be written as 2026-03-31 or 31.03.2026. The template shows an example, and the export writes the same layout.</li>
 <li><strong>Estimating purchase dates:</strong> most brokers only report an average price. <em>Estimate Missing Purchase Dates</em> (same menu, also offered when importing) gives each purchase without a date the most recent day the share closed at your price, converted into the currency you paid in. For Raymond James the “Time Held” column narrows the search. Choose <em>Yearly Purchases over the Years</em> if you bought repeatedly: the app then assumes equal purchases once a year, going back as few years as it takes for the market prices to explain your average. These entries are marked as estimated and change no quantity or cost. It is a guess: a position built up over several purchases was partly bought earlier, so correct the entries where you know the real dates.</li>
-<li><strong>Purchases and sales:</strong> edit a position (pencil on the share's page) to record a purchase or sale with date and price. Shares and average cost are then calculated from these entries (a sale leaves the average cost of the remaining shares unchanged), and the realised gain is shown.</li>
+<li><strong>Purchases and sales:</strong> edit a position (pencil on the share's page) to record a purchase or sale with date and price. Shares and average cost are then calculated from these entries (a sale leaves the average cost of the remaining shares unchanged), and the realised gain is shown. If the purchase price of the sold shares is unknown, the realised gain is shown as unknown rather than counting the whole sale as profit.</li>
 </ul>
 <p>Symbols are written as US ticker or ticker plus exchange suffix, such as <code>AAPL</code>, <code>SAP.DE</code> (Xetra), <code>ALV.F</code> (Frankfurt) or <code>VOD.L</code> (London); the search in the app shows the exact symbol. Both comma and semicolon separated files are understood, as are numbers written as <code>1.234,56</code> or <code>1,234.56</code>.</p>
 
@@ -87,7 +87,8 @@
 <p>The menu bar item shows today's change in percent by default. In <em>Settings › Menu bar</em> you can switch to an icon only, the change in euros, both, or the total value. Click the item for a summary of each portfolio and the day's biggest moves.</p>
 
 <h2 id="widgets">Widgets</h2>
-<p>On the Mac, right-click the desktop, choose <em>Edit Widgets</em> and search for Depotticker. On iPhone and iPad, touch and hold the Home Screen and tap <em>Edit</em>. There are three sizes: small (value and today's change), medium (plus each portfolio) and large (plus the biggest moves). The system decides how often widgets refresh, usually every 15 to 30 minutes.</p>
+<p>On the Mac, right-click the desktop, choose <em>Edit Widgets</em> and search for Depotticker. On iPhone and iPad, touch and hold the Home Screen and tap <em>Edit</em>. There are three sizes: small (today's change), medium (plus each portfolio) and large (plus the biggest moves). The system decides how often widgets refresh, usually every 15 to 30 minutes.</p>
+<p>A widget is visible to anyone near your screen, so it shows percentages only: today's change and your total gain. To see your portfolio's value and the changes in euros as well, turn on <em>Show amounts in the widget</em> in Settings on the Mac, or <em>Amounts in Widget</em> in the toolbar menu on iPhone and iPad. On iPhone and iPad the amounts are hidden while the device is locked.</p>
 
 <h2 id="privacy">Privacy and screen sharing</h2>
 <ul>
@@ -98,6 +99,7 @@
 
 <h2 id="icloud">iCloud sync</h2>
 <p>In the App Store versions, your portfolios are stored in your Apple Account and appear automatically on your Mac, iPhone and iPad. Nothing is saved as a file in iCloud Drive, and there is nothing to set up beyond being signed in to iCloud. The direct-download Mac version keeps its data on that Mac.</p>
+<p>Changes made on a device while it is offline are merged when it comes back online, so edits made on two devices both survive. If the same position was changed on two devices at the same time, the version that reached iCloud first is kept; the other one is saved as <code>portfolios.backup.json</code> in the app's data folder and the app tells you.</p>
 
 <h2 id="mcp">AI agents (MCP)</h2>
 <p>The Mac app includes a Model Context Protocol server, so an AI assistant can read your portfolio and change positions when you ask it to. It runs only while the assistant uses it and talks to nothing but the assistant that started it.</p>
