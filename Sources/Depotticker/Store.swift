@@ -38,6 +38,13 @@ final class Store: ObservableObject {
     @Published var lastError: String?
     /// Set when the portfolio file could not be read at launch; stays until the app is restarted.
     @Published private(set) var dataProblem: String?
+    /// Whether the widget may show money amounts; it shows percentages only otherwise.
+    @Published var widgetShowsAmounts = false {
+        didSet {
+            WidgetSettings(showAmounts: widgetShowsAmounts).save(to: repository.directory)
+            WidgetCenter.shared.reloadAllTimelines()
+        }
+    }
     @Published var menuBarMode: MenuBarMode {
         didSet { UserDefaults.standard.set(menuBarMode.rawValue, forKey: "menuBarMode") }
     }
@@ -90,6 +97,7 @@ final class Store: ObservableObject {
         let loaded = repository.loadChecked()
         portfolios = loaded.portfolios
         dataProblem = loaded.problem?.message
+        widgetShowsAmounts = WidgetSettings.load(from: repository.directory).showAmounts
         if !MarketData.configure(directory: repository.directory), ProcessInfo.processInfo.environment["DEPOTTICKER_SOURCE"] == nil {
             // First start of a version with selectable sources: installs that already hold positions keep
             // the source they have been using; new installs start without one.
@@ -134,7 +142,9 @@ final class Store: ObservableObject {
     // MARK: Persistence
 
     private func save() {
-        repository.save(portfolios)
+        if !repository.save(portfolios) {
+            dataProblem = "Your portfolios have outgrown iCloud's 1 MB limit and are no longer synced. They are safe on this device."
+        }
         loadedStamp = repository.stamp()
         WidgetCenter.shared.reloadAllTimelines()
         invalidateHistories()
@@ -157,24 +167,42 @@ final class Store: ObservableObject {
         let cloud = NSUbiquitousKeyValueStore.default
         cloudObserver = NotificationCenter.default.addObserver(
             forName: NSUbiquitousKeyValueStore.didChangeExternallyNotification, object: cloud, queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in self?.adoptCloudCopy() }
+        ) { [weak self] note in
+            let reason = note.userInfo?[NSUbiquitousKeyValueStoreChangeReasonKey] as? Int
+            Task { @MainActor in self?.adoptCloudCopy(reason: reason) }
         }
         cloud.synchronize()
         adoptCloudCopy()
     }
 
-    private func adoptCloudCopy() {
+    private func adoptCloudCopy(reason: Int? = nil) {
         guard let data = NSUbiquitousKeyValueStore.default.data(forKey: PortfolioRepository.cloudKey),
-              let fresh = PortfolioRepository.decode(data)
+              let remote = PortfolioRepository.decode(data)
         else {
             // Nothing in iCloud yet: publish what this device has.
-            if !portfolios.isEmpty { repository.save(portfolios) }
+            if !portfolios.isEmpty {
+                repository.save(portfolios)
+                repository.saveSyncBase(portfolios)
+            }
             return
         }
-        guard fresh != portfolios else { return }
-        portfolios = fresh
-        repository.save(fresh)
+        let outcome: CloudMerge.Outcome
+        if reason == NSUbiquitousKeyValueStoreAccountChange {
+            // Another Apple Account: its portfolios replace this device's instead of being mixed in.
+            outcome = .init(portfolios: remote, conflicts: remote == portfolios ? 0 : 1)
+        } else {
+            outcome = CloudMerge.merge(base: repository.loadSyncBase(), local: portfolios, remote: remote)
+        }
+        repository.saveSyncBase(outcome.portfolios)
+        if outcome.portfolios != remote { repository.save(outcome.portfolios) }
+        guard outcome.portfolios != portfolios else { return }
+        if outcome.conflicts > 0 {
+            repository.backup(portfolios)
+            dataProblem = "\(outcome.conflicts) position\(outcome.conflicts == 1 ? " was" : "s were") changed on another device "
+                + "at the same time. That version was kept; this device's is in portfolios.backup.json."
+        }
+        portfolios = outcome.portfolios
+        if outcome.portfolios == remote { repository.save(outcome.portfolios, toCloud: false) }
         loadedStamp = repository.stamp()
         WidgetCenter.shared.reloadAllTimelines()
         invalidateHistories()

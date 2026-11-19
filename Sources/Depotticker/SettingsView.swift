@@ -31,6 +31,11 @@ struct SettingsView: View {
                      + (store.sharingDetected ? " Amounts are hidden right now." : ""))
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                Toggle("Show amounts in the widget", isOn: $store.widgetShowsAmounts)
+                Text("Without amounts the widget shows today's change and the total gain in percent only, "
+                     + "so the value of your portfolio is not on display for anyone near the screen.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Toggle("Keep Depotticker windows out of screen sharing and recordings", isOn: $store.excludeFromCapture)
                 Text("Asks macOS to leave the app's windows and menu bar item out of shared or recorded screens. "
                      + "Some capture tools ignore this request, so treat it as an extra layer, not a guarantee.")

@@ -201,6 +201,24 @@ final class SkippedEntries {
     var count = 0
 }
 
+/// What the widget may show, kept in the data folder because the widget runs as its own process.
+struct WidgetSettings: Codable, Equatable {
+    /// Money amounts: total value, today's change in euros, portfolio values. Off unless the user turns
+    /// it on, because a widget is visible to anyone near the screen.
+    var showAmounts = false
+
+    static func url(in directory: URL) -> URL { directory.appendingPathComponent("widget.json") }
+
+    static func load(from directory: URL) -> WidgetSettings {
+        (try? Data(contentsOf: url(in: directory))).flatMap { try? JSONDecoder().decode(WidgetSettings.self, from: $0) }
+            ?? WidgetSettings()
+    }
+
+    func save(to directory: URL) {
+        try? JSONEncoder().encode(self).write(to: Self.url(in: directory), options: .atomic)
+    }
+}
+
 struct PortfolioFile: Codable {
     var portfolios: [Portfolio]
 }

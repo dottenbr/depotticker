@@ -209,6 +209,9 @@ struct ContentView: View {
                     Button("Yearly Purchases over the Years") { estimateDates(.yearly) }
                 }
                 Button("Price Source…", systemImage: "antenna.radiowaves.left.and.right") { store.showSourceSettings = true }
+                #if os(iOS)
+                Toggle("Amounts in Widget", systemImage: "eye", isOn: $store.widgetShowsAmounts)
+                #endif
                 Divider()
                 Button("Help", systemImage: "questionmark.circle") {
                     openURL(Links.help)
