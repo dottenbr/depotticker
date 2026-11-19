@@ -16,6 +16,8 @@ enum EditorContext: Identifiable {
 
 @MainActor
 final class Store: ObservableObject {
+    // Members without an access modifier below are internal so the Store+… files can use them;
+    // the views go through the published properties and the functions in those files.
     static var refreshInterval: Duration { MarketData.source.refreshInterval }
 
     @Published var portfolios: [Portfolio] = [] {
@@ -26,7 +28,7 @@ final class Store: ObservableObject {
     /// EUR value of one unit of each currency.
     @Published var fx: [String: Double] = ["EUR": 1]
     /// The same rates at the previous close, so today's change includes the currency move.
-    private var fxPrevious: [String: Double] = ["EUR": 1]
+    var fxPrevious: [String: Double] = ["EUR": 1]
     @Published var selectedPortfolioID: UUID?
     @Published var selectedSymbol: String?
     @Published var editor: EditorContext?
@@ -37,7 +39,7 @@ final class Store: ObservableObject {
     @Published var lastUpdate: Date?
     @Published var lastError: String?
     /// Set when the portfolio file could not be read at launch; stays until the app is restarted.
-    @Published private(set) var dataProblem: String?
+    @Published var dataProblem: String?
     /// Whether the widget may show money amounts; it shows percentages only otherwise.
     @Published var widgetShowsAmounts = false {
         didSet {
@@ -61,33 +63,33 @@ final class Store: ObservableObject {
     }
     @Published private(set) var sharingDetected = false
     /// The chosen price source and API keys (see `MarketData`).
-    @Published private(set) var sourceConfig = SourceConfig()
+    @Published var sourceConfig = SourceConfig()
     /// Day of the exchange rates in use, when they are the ECB's daily reference rates.
     @Published private(set) var ratesDate: Date?
     /// Minutes the German-exchanges source still needs to read the rest of today's trade files. Until
     /// then a share that last traded earlier today still shows an older price.
     @Published private(set) var catchUpMinutes = 0
     /// Progress of the ISIN lookup (done, total) while it runs.
-    @Published private(set) var isinProgress: (done: Int, total: Int)?
+    @Published var isinProgress: (done: Int, total: Int)?
     /// Symbols whose ISIN the lookup could not find; they need it entered by hand.
-    @Published private(set) var unresolvedISINs: [String] = []
+    @Published var unresolvedISINs: [String] = []
 
     /// True when amounts should currently be masked (menu bar on the Mac, totals on iPhone and iPad).
     var amountsHidden: Bool { autoHideAmounts && sharingDetected }
 
     /// Value history per range and portfolio, keyed by `historyKey`.
-    @Published private(set) var histories: [String: [ChartPoint]] = [:]
+    @Published var histories: [String: [ChartPoint]] = [:]
 
-    private var repository = PortfolioRepository()
-    private var refreshTask: Task<Void, Never>?
-    private var privacyTask: Task<Void, Never>?
-    private var cloudObserver: NSObjectProtocol?
-    private var metaInFlight: Set<String> = []
-    private var loadedStamp: Date?
-    private var seriesCache: [ChartRange: (fetched: Date, series: [String: PriceSeries])] = [:]
-    private var historyInFlight: Set<ChartRange> = []
+    var repository = PortfolioRepository()
+    var refreshTask: Task<Void, Never>?
+    var privacyTask: Task<Void, Never>?
+    var cloudObserver: NSObjectProtocol?
+    var metaInFlight: Set<String> = []
+    var loadedStamp: Date?
+    var seriesCache: [ChartRange: (fetched: Date, series: [String: PriceSeries])] = [:]
+    var historyInFlight: Set<ChartRange> = []
     /// The symbols the cached price series were downloaded for.
-    private var seriesSymbols: Set<String> = []
+    var seriesSymbols: Set<String> = []
 
     init() {
         let defaults = UserDefaults.standard
@@ -141,7 +143,7 @@ final class Store: ObservableObject {
 
     // MARK: Persistence
 
-    private func save() {
+    func save() {
         if !repository.save(portfolios) {
             dataProblem = "Your portfolios have outgrown iCloud's 1 MB limit and are no longer synced. They are safe on this device."
         }
@@ -151,7 +153,7 @@ final class Store: ObservableObject {
     }
 
     /// Picks up edits written by the MCP server.
-    private func reloadIfChangedElsewhere() {
+    func reloadIfChangedElsewhere() {
         guard let stamp = repository.stamp(), stamp != loadedStamp else { return }
         loadedStamp = stamp
         let fresh = repository.load()
@@ -161,151 +163,8 @@ final class Store: ObservableObject {
         invalidateHistories()
     }
 
-    /// App Store builds share the portfolios between Mac, iPhone and iPad through iCloud.
-    private func startCloudSync() {
-        guard PortfolioRepository.usesCloudStore else { return }
-        let cloud = NSUbiquitousKeyValueStore.default
-        cloudObserver = NotificationCenter.default.addObserver(
-            forName: NSUbiquitousKeyValueStore.didChangeExternallyNotification, object: cloud, queue: .main
-        ) { [weak self] note in
-            let reason = note.userInfo?[NSUbiquitousKeyValueStoreChangeReasonKey] as? Int
-            Task { @MainActor in self?.adoptCloudCopy(reason: reason) }
-        }
-        cloud.synchronize()
-        adoptCloudCopy()
-    }
-
-    private func adoptCloudCopy(reason: Int? = nil) {
-        guard let data = NSUbiquitousKeyValueStore.default.data(forKey: PortfolioRepository.cloudKey),
-              let remote = PortfolioRepository.decode(data)
-        else {
-            // Nothing in iCloud yet: publish what this device has.
-            if !portfolios.isEmpty {
-                repository.save(portfolios)
-                repository.saveSyncBase(portfolios)
-            }
-            return
-        }
-        let outcome: CloudMerge.Outcome
-        if reason == NSUbiquitousKeyValueStoreAccountChange {
-            // Another Apple Account: its portfolios replace this device's instead of being mixed in.
-            outcome = .init(portfolios: remote, conflicts: remote == portfolios ? 0 : 1)
-        } else {
-            outcome = CloudMerge.merge(base: repository.loadSyncBase(), local: portfolios, remote: remote)
-        }
-        repository.saveSyncBase(outcome.portfolios)
-        if outcome.portfolios != remote { repository.save(outcome.portfolios) }
-        guard outcome.portfolios != portfolios else { return }
-        if outcome.conflicts > 0 {
-            repository.backup(portfolios)
-            dataProblem = "\(outcome.conflicts) position\(outcome.conflicts == 1 ? " was" : "s were") changed on another device "
-                + "at the same time. That version was kept; this device's is in portfolios.backup.json."
-        }
-        portfolios = outcome.portfolios
-        if outcome.portfolios == remote { repository.save(outcome.portfolios, toCloud: false) }
-        loadedStamp = repository.stamp()
-        WidgetCenter.shared.reloadAllTimelines()
-        invalidateHistories()
-        Task { await refresh() }
-    }
-
-    private func saveMeta() {
+    func saveMeta() {
         repository.saveMeta(meta)
-    }
-
-    // MARK: Price source
-
-    /// Switches the price source or stores an API key, then reloads everything from the new source.
-    func setSource(_ source: DataSource, key: String? = nil, supplement: DataSource? = nil) {
-        var config = sourceConfig
-        config.source = source
-        config.supplement = source == .boerse ? supplement : nil
-        let keyed = source == .boerse ? supplement : source
-        if let key, let keyed { config.keys[keyed.rawValue] = key.trimmingCharacters(in: .whitespacesAndNewlines) }
-        guard config != sourceConfig else { return }
-        config.save(to: repository.directory)
-        MarketData.config = config
-        sourceConfig = config
-        quotes.removeAll()
-        supplementedSeen = []
-        // Listing currency and venue differ between sources; each has its own cached facts.
-        meta = repository.loadMeta()
-        lastError = nil
-        WidgetCenter.shared.reloadAllTimelines()
-        invalidateHistories(reload: true)
-        Task {
-            if source == .boerse { await resolveISINs() }
-            await refresh()
-        }
-    }
-
-    /// Looks up the ISIN of every position that has none, in the public registers. Slow (a few
-    /// seconds per share) because the registers limit how often they may be asked.
-    func resolveISINs() async {
-        var seen = Set<String>()
-        let open = portfolios.flatMap(\.positions).filter { ($0.isin ?? "").isEmpty && seen.insert($0.symbol).inserted }
-        guard !open.isEmpty, isinProgress == nil else { return }
-        isinProgress = (0, open.count)
-        var missing: [String] = []
-        for (index, position) in open.enumerated() {
-            let names = [meta[position.symbol]?.name, position.name].compactMap { $0 }
-            if let found = await Instruments.isin(for: position.symbol, names: names) {
-                for p in portfolios.indices {
-                    for i in portfolios[p].positions.indices where portfolios[p].positions[i].symbol == position.symbol {
-                        portfolios[p].positions[i].isin = found.isin
-                    }
-                }
-                repository.save(portfolios)
-                loadedStamp = repository.stamp()
-            } else {
-                missing.append(position.symbol)
-            }
-            isinProgress = (index + 1, open.count)
-        }
-        isinProgress = nil
-        unresolvedISINs = missing
-        invalidateHistories(reload: true)
-    }
-
-    // MARK: Import and export
-
-    func exportCSV() -> String {
-        CSVCodec.export(portfolios, priceEUR: { [self] in priceEUR($0) }, rateEUR: { [self] in fx[$0] })
-    }
-
-    /// Applies imported portfolios. Positions go into the portfolio with the same name; `replacing`
-    /// drops everything first (the previous state is kept as a backup file).
-    func apply(imported: [Portfolio], replacing: Bool) {
-        repository.backup(portfolios)
-        portfolios = PortfolioMerge.merge(imported, into: portfolios, replacing: replacing).portfolios
-        if let selected = selectedPortfolioID, !portfolios.contains(where: { $0.id == selected }) {
-            selectedPortfolioID = nil
-        }
-        save()
-        Task {
-            if sourceConfig.source == .boerse { await resolveISINs() }
-            await refresh()
-        }
-    }
-
-    /// Adds an estimated purchase date to every position that has a cost but no date. Returns how many.
-    @discardableResult
-    func estimatePurchaseDates(style: PurchaseEstimator.Style = .single) async -> Int {
-        let outcome = await PurchaseEstimator.fillMissingDates(in: portfolios, style: style)
-        guard outcome.estimated > 0 else { return 0 }
-        repository.backup(portfolios)
-        // Keep edits made while the estimate was running.
-        for portfolio in outcome.portfolios {
-            guard let p = portfolios.firstIndex(where: { $0.id == portfolio.id }) else { continue }
-            for position in portfolio.positions where !position.trades.isEmpty {
-                if let i = portfolios[p].positions.firstIndex(where: { $0.id == position.id }),
-                   portfolios[p].positions[i].needsPurchaseDate {
-                    portfolios[p].positions[i] = position
-                }
-            }
-        }
-        save()
-        return outcome.estimated
     }
 
     // MARK: Live data
@@ -366,9 +225,9 @@ final class Store: ObservableObject {
         }
     }
 
-    private var supplementedSeen: Set<String> = []
+    var supplementedSeen: Set<String> = []
 
-    private func loadMissingMeta(for symbols: [String]) async {
+    func loadMissingMeta(for symbols: [String]) async {
         let missing = symbols.filter { meta[$0] == nil && !metaInFlight.contains($0) }
         guard !missing.isEmpty else { return }
         metaInFlight.formUnion(missing)
@@ -377,97 +236,6 @@ final class Store: ObservableObject {
         }
         metaInFlight.subtract(missing)
         saveMeta()
-    }
-
-    // MARK: Portfolio history
-
-    static let historyRanges: [ChartRange] = [.day, .week, .month, .quarter, .half, .ytd, .year, .fiveYears]
-
-    func historyKey(_ range: ChartRange, _ portfolioID: UUID?) -> String {
-        "\(range.rawValue)|\(portfolioID?.uuidString ?? "all")"
-    }
-
-    /// How long a downloaded range stays fresh: intraday ranges move, daily ones barely do.
-    private func lifetime(_ range: ChartRange) -> TimeInterval {
-        switch range {
-        case .day: return MarketData.source.intradayLifetime
-        case .week: return 600
-        case .month: return 1_800
-        default: return 6 * 3_600
-        }
-    }
-
-    /// Downloads one range for all symbols (three small requests) and recomputes the value history of
-    /// every portfolio from it, as if today's holdings had been held for the whole period.
-    func loadHistory(_ range: ChartRange, force: Bool = false) async {
-        let symbols = allSymbols
-        guard !symbols.isEmpty, !historyInFlight.contains(range) else { return }
-        if !force, let cached = seriesCache[range], Date().timeIntervalSince(cached.fetched) < lifetime(range),
-           histories[historyKey(range, selectedPortfolioID)] != nil {
-            return
-        }
-        historyInFlight.insert(range)
-        defer { historyInFlight.remove(range) }
-        if fx.count < 2 || meta.isEmpty { await refresh() }
-
-        let series = await MarketData.series(symbols, range: range)
-        guard series.count * 2 >= symbols.count else { return }
-        seriesCache[range] = (Date(), series)
-        seriesSymbols = Set(symbols)
-        recomputeHistories(for: range)
-        saveHistories()
-    }
-
-    private func recomputeHistories(for range: ChartRange) {
-        guard let series = seriesCache[range]?.series else { return }
-        let filters: [UUID?] = [nil] + portfolios.map { Optional($0.id) }
-        for filter in filters {
-            var inputs: [PortfolioHistory.Series] = []
-            for holding in holdings(in: filter) {
-                guard let data = series[holding.symbol], let m = meta[holding.symbol], let rate = fx[m.currency] else { continue }
-                let factor = holding.quantity * rate * m.scale
-                inputs.append(.init(factor: factor, points: data.points,
-                                    lead: range == .day ? data.previousClose : nil))
-            }
-            histories[historyKey(range, filter)] = PortfolioHistory.combine(inputs, range: range)
-        }
-    }
-
-    /// Loads every range in the background so switching periods is instant.
-    func preloadHistories(force: Bool = false) async {
-        for range in Store.historyRanges {
-            await loadHistory(range, force: force)
-        }
-    }
-
-    private var historiesURL: URL {
-        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-        return caches.appendingPathComponent("Depotticker-histories.json")
-    }
-
-    private func saveHistories() {
-        try? JSONEncoder().encode(histories).write(to: historiesURL, options: .atomic)
-    }
-
-    private func loadSavedHistories() {
-        guard let data = try? Data(contentsOf: historiesURL),
-              let saved = try? JSONDecoder().decode([String: [ChartPoint]].self, from: data)
-        else { return }
-        histories = saved
-    }
-
-    /// Holdings changed: the value histories no longer match. While the same shares are held (a
-    /// changed quantity, a move between portfolios) the downloaded prices still apply and only the sums
-    /// are redone; `reload` forces new downloads (another source, new ISINs).
-    private func invalidateHistories(reload: Bool = false) {
-        histories.removeAll()
-        if reload || Set(allSymbols) != seriesSymbols {
-            seriesCache.removeAll()
-        } else {
-            for range in seriesCache.keys { recomputeHistories(for: range) }
-            saveHistories()
-        }
-        Task { await preloadHistories() }
     }
 
     /// Called by the detail view when it has fresher statistics for a symbol.
@@ -487,122 +255,4 @@ final class Store: ObservableObject {
         saveMeta()
     }
 
-    // MARK: Derived values (all in EUR, see `Valuation`)
-
-    private var valuation: Valuation { Valuation(quotes: quotes, meta: meta, fx: fx, fxPrevious: fxPrevious) }
-
-    func priceEUR(_ symbol: String) -> Double? { valuation.price(symbol) }
-
-    /// Price in the listing's own currency.
-    func nativePrice(_ symbol: String) -> Double? {
-        guard let quote = quotes[symbol], let m = meta[symbol] else { return nil }
-        return quote.price * m.scale
-    }
-
-    /// Pre-market or after-hours price in the listing's currency, if any.
-    func extendedPrice(_ symbol: String) -> Double? {
-        guard let extended = quotes[symbol]?.extendedPrice, let m = meta[symbol] else { return nil }
-        return extended * m.scale
-    }
-
-    func dayPct(_ symbol: String) -> Double? { quotes[symbol]?.changePct }
-    func value(_ holding: Holding) -> Double? { valuation.value(holding) }
-    func dayChange(_ holding: Holding) -> Double? { valuation.dayChange(holding) }
-    func cost(_ holding: Holding) -> Double? { valuation.cost(holding) }
-    func unitCost(_ holding: Holding) -> Double? { valuation.unitCost(holding) }
-    func gain(_ holding: Holding) -> Double? { valuation.gain(holding) }
-    func gainPct(_ holding: Holding) -> Double? { valuation.gainPct(holding) }
-    func realized(_ holding: Holding) -> Double? { valuation.realized(holding) }
-
-    func holdings(in portfolioID: UUID?) -> [Holding] {
-        // A source that could not name the listing reports the symbol; the name on record is better.
-        let names = meta.compactMapValues { $0.name == $0.symbol ? nil : $0.name }
-        return Holding.group(portfolios.filter { portfolioID == nil || $0.id == portfolioID }, names: names)
-    }
-
-    var visibleHoldings: [Holding] { holdings(in: selectedPortfolioID) }
-
-    func holding(_ symbol: String) -> Holding? {
-        visibleHoldings.first { $0.symbol == symbol } ?? holdings(in: nil).first { $0.symbol == symbol }
-    }
-
-    func totals(in portfolioID: UUID?) -> Totals { valuation.totals(holdings(in: portfolioID)) }
-
-    var visibleTotals: Totals { totals(in: selectedPortfolioID) }
-
-    var selectedPortfolioName: String {
-        portfolios.first { $0.id == selectedPortfolioID }?.name ?? "All Portfolios"
-    }
-
-    /// Text for the menu bar item, or nil to show only the icon.
-    var menuBarTitle: String? {
-        let totals = totals(in: nil)
-        guard totals.value > 0 else { return nil }
-        // While sharing is likely, fall back to the percentage, which reveals no amounts.
-        let mode = amountsHidden && menuBarMode.showsAmounts ? MenuBarMode.percent : menuBarMode
-        let arrow = totals.day >= 0 ? "▲" : "▼"
-        let pct = (abs(totals.dayPct) / 100).formatted(.percent.precision(.fractionLength(2)))
-        let change = Fmt.money(abs(totals.day), decimals: 0)
-        switch mode {
-        case .icon: return nil
-        case .percent: return "\(arrow) \(pct)"
-        case .change: return "\(arrow) \(change)"
-        case .changeAndPercent: return "\(arrow) \(change) · \(pct)"
-        case .value: return "\(Fmt.compactEUR(totals.value)) \(arrow) \(pct)"
-        }
-    }
-
-    // MARK: Editing
-
-    func addPortfolio(named name: String) {
-        let trimmed = name.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { return }
-        let portfolio = Portfolio(name: trimmed)
-        portfolios.append(portfolio)
-        selectedPortfolioID = portfolio.id
-        save()
-    }
-
-    func renamePortfolio(_ id: UUID, to name: String) {
-        let trimmed = name.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty, let index = portfolios.firstIndex(where: { $0.id == id }) else { return }
-        portfolios[index].name = trimmed
-        save()
-    }
-
-    func deletePortfolio(_ id: UUID) {
-        portfolios.removeAll { $0.id == id }
-        if selectedPortfolioID == id { selectedPortfolioID = nil }
-        save()
-    }
-
-    func add(_ position: Position, to portfolioID: UUID) {
-        guard let index = portfolios.firstIndex(where: { $0.id == portfolioID }) else { return }
-        portfolios[index].positions.append(position)
-        save()
-        Task {
-            if sourceConfig.source == .boerse { await resolveISINs() }
-            await refresh()
-        }
-    }
-
-    func update(_ position: Position, in portfolioID: UUID, movingTo target: UUID) {
-        guard let from = portfolios.firstIndex(where: { $0.id == portfolioID }),
-              let index = portfolios[from].positions.firstIndex(where: { $0.id == position.id })
-        else { return }
-        if target == portfolioID {
-            portfolios[from].positions[index] = position
-        } else if let to = portfolios.firstIndex(where: { $0.id == target }) {
-            portfolios[from].positions.remove(at: index)
-            portfolios[to].positions.append(position)
-        }
-        save()
-        Task { await refresh() }
-    }
-
-    func delete(_ position: Position, from portfolioID: UUID) {
-        guard let index = portfolios.firstIndex(where: { $0.id == portfolioID }) else { return }
-        portfolios[index].positions.removeAll { $0.id == position.id }
-        save()
-    }
 }
