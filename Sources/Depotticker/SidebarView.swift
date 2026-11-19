@@ -24,6 +24,13 @@ enum PillMode: String, CaseIterable {
 }
 
 struct SidebarView: View {
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    /// On iPhone the list is the first screen, so the welcome sits here; elsewhere it fills the detail pane.
+    private var welcomesHere: Bool { sizeClass == .compact }
+    #else
+    private var welcomesHere: Bool { false }
+    #endif
     @EnvironmentObject private var store: Store
     @AppStorage("sortMode") private var sortMode: SortMode = .value
     @AppStorage("pillMode") private var pillMode: PillMode = .dayPct
@@ -85,8 +92,12 @@ struct SidebarView: View {
             .listStyle(.sidebar)
             .overlay {
                 if store.portfolios.flatMap(\.positions).isEmpty {
-                    ContentUnavailableView("No positions yet", systemImage: "chart.line.uptrend.xyaxis",
-                                           description: Text("Add your first position with the + button."))
+                    if welcomesHere {
+                        WelcomeView()
+                    } else {
+                        ContentUnavailableView("No positions yet", systemImage: "chart.line.uptrend.xyaxis",
+                                               description: Text("Import a file or add a position to get started."))
+                    }
                 }
             }
             footer
@@ -318,6 +329,26 @@ struct HoldingRow: View {
         // The EUR change includes the exchange-rate move, so its sign can differ from the share's own.
         case .dayEUR: return store.dayChange(holding)
         case .gainPct, .gainEUR: return store.gain(holding)
+        }
+    }
+}
+
+/// First start: offers to import a file (the usual way in) or to add a position by hand.
+struct WelcomeView: View {
+    @EnvironmentObject private var store: Store
+
+    var body: some View {
+        ContentUnavailableView {
+            Label("Welcome to Depotticker", systemImage: "chart.line.uptrend.xyaxis")
+        } description: {
+            Text("Got a portfolio file, exported from Depotticker or from your broker? Import it and you are done. Or add your first position by hand.")
+        } actions: {
+            Button("Import a File…", systemImage: "square.and.arrow.down") { store.showImporter = true }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .keyboardShortcut(.defaultAction)
+            Button("Add a Position", systemImage: "plus") { store.editor = .add }
+                .controlSize(.large)
         }
     }
 }

@@ -4,7 +4,7 @@ import Foundation
 /// A small Model Context Protocol server (JSON-RPC over stdio) so AI agents can read and edit the
 /// portfolios. Start it with `Depotticker --mcp`; the running app picks up changes within seconds.
 enum MCPServer {
-    static let version = "0.5.1"
+    static let version = "0.5.2"
 
     static func runBlocking() -> Never {
         Task.detached {
