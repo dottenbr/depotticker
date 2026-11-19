@@ -69,7 +69,9 @@ extension Store {
     func apply(imported: [Portfolio], replacing: Bool) {
         repository.backup(portfolios)
         portfolios = PortfolioMerge.merge(imported, into: portfolios, replacing: replacing).portfolios
-        if let selected = selectedPortfolioID, !portfolios.contains(where: { $0.id == selected }) {
+        // Show what was imported: a selected portfolio that is gone or still empty would hide it.
+        if let selected = selectedPortfolioID,
+           portfolios.first(where: { $0.id == selected })?.positions.isEmpty ?? true {
             selectedPortfolioID = nil
         }
         save()

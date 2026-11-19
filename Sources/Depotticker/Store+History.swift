@@ -37,7 +37,8 @@ extension Store {
         if fx.count < 2 || meta.isEmpty { await refresh() }
 
         let series = await MarketData.series(symbols, range: range)
-        guard series.count * 2 >= symbols.count else { return }
+        // Holdings that changed during the download make this one obsolete; a fresh one is under way.
+        guard series.count * 2 >= symbols.count, Set(symbols) == Set(allSymbols) else { return }
         seriesCache[range] = (Date(), series)
         seriesSymbols = Set(symbols)
         recomputeHistories(for: range)
