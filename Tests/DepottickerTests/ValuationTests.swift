@@ -192,3 +192,77 @@ final class RepositoryTests: XCTestCase {
         XCTAssertTrue(problem.message.hasPrefix("1 position could not be read and was left out."))
     }
 }
+
+final class CloudMergeTests: XCTestCase {
+    private let id = UUID()
+    private func position(_ symbol: String, _ quantity: Double, id: UUID = UUID()) -> Position {
+        Position(id: id, symbol: symbol, name: symbol, quantity: quantity, unitCost: 10)
+    }
+
+    private func setUpBase() -> (base: [Portfolio], sap: Position, apple: Position) {
+        let sap = position("SAP.DE", 10), apple = position("AAPL", 5)
+        return ([Portfolio(id: id, name: "Broker", positions: [sap, apple])], sap, apple)
+    }
+
+    private func edit(_ portfolios: [Portfolio], _ change: (inout [Position]) -> Void) -> [Portfolio] {
+        var copy = portfolios
+        change(&copy[0].positions)
+        return copy
+    }
+
+    func testEditsToDifferentPositionsOnTwoDevicesAreBothKept() {
+        let (base, _, _) = setUpBase()
+        let local = edit(base) { $0[0].quantity = 12 }
+        let remote = edit(base) { $0[1].quantity = 7 }
+        let outcome = CloudMerge.merge(base: base, local: local, remote: remote)
+        XCTAssertEqual(outcome.portfolios[0].positions.map(\.quantity), [12, 7])
+        XCTAssertEqual(outcome.conflicts, 0)
+    }
+
+    func testTheSamePositionChangedOnBothSidesTakesTheCloudCopyAndCountsAConflict() {
+        let (base, _, _) = setUpBase()
+        let outcome = CloudMerge.merge(base: base, local: edit(base) { $0[0].quantity = 12 },
+                                       remote: edit(base) { $0[0].quantity = 20 })
+        XCTAssertEqual(outcome.portfolios[0].positions[0].quantity, 20)
+        XCTAssertEqual(outcome.conflicts, 1)
+    }
+
+    func testRemovalsAndAdditions() {
+        let (base, _, _) = setUpBase()
+        let added = position("MSFT", 1)
+        // Removed here, untouched there: stays removed. Added there: arrives.
+        var outcome = CloudMerge.merge(base: base, local: edit(base) { $0.removeFirst() },
+                                       remote: edit(base) { $0.append(added) })
+        XCTAssertEqual(outcome.portfolios[0].positions.map(\.symbol), ["AAPL", "MSFT"])
+        // Removed there, but changed here since: the change is kept.
+        outcome = CloudMerge.merge(base: base, local: edit(base) { $0[0].quantity = 99 }, remote: edit(base) { $0.removeFirst() })
+        XCTAssertEqual(outcome.portfolios[0].positions.map(\.symbol), ["SAP.DE", "AAPL"])
+        // A portfolio created on each device: both are there.
+        let mine = base + [Portfolio(name: "Mine")], theirs = base + [Portfolio(name: "Theirs")]
+        XCTAssertEqual(CloudMerge.merge(base: base, local: mine, remote: theirs).portfolios.map(\.name), ["Broker", "Mine", "Theirs"])
+    }
+
+    func testARenameAndAnEditInTheSamePortfolioBothSurvive() {
+        let (base, _, _) = setUpBase()
+        var renamed = base
+        renamed[0].name = "Broker (old)"
+        let outcome = CloudMerge.merge(base: base, local: renamed, remote: edit(base) { $0[1].quantity = 6 })
+        XCTAssertEqual(outcome.portfolios[0].name, "Broker (old)")
+        XCTAssertEqual(outcome.portfolios[0].positions[1].quantity, 6)
+    }
+
+    func testFirstSyncRecognisesTheSamePortfolioAndShareByNameAndSymbol() {
+        let theirs = [Portfolio(name: "ING", positions: [position("SAP.DE", 10)])]
+        let mine = [Portfolio(name: "ing", positions: [position("SAP.DE", 10), position("AAPL", 2)])]
+        let outcome = CloudMerge.merge(base: nil, local: mine, remote: theirs)
+        XCTAssertEqual(outcome.portfolios.count, 1)
+        XCTAssertEqual(outcome.portfolios[0].positions.map(\.symbol), ["SAP.DE", "AAPL"])
+    }
+
+    func testMergingAgainChangesNothing() {
+        let (base, _, _) = setUpBase()
+        let first = CloudMerge.merge(base: base, local: edit(base) { $0[0].quantity = 12 }, remote: edit(base) { $0[1].quantity = 7 })
+        let again = CloudMerge.merge(base: first.portfolios, local: first.portfolios, remote: first.portfolios)
+        XCTAssertEqual(again, first)
+    }
+}

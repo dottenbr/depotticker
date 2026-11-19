@@ -24,6 +24,8 @@ struct DepotEntry: TimelineEntry, Codable {
     var day: Double
     var portfolios: [WidgetPortfolio]
     var movers: [WidgetMover]
+    /// Set from the user's choice each time the widget draws; see `WidgetSettings`.
+    var showAmounts = false
 
     private var totals: Totals { Totals(value: value, cost: cost, gain: gain, day: day) }
     var dayPct: Double { totals.dayPct }
@@ -32,6 +34,13 @@ struct DepotEntry: TimelineEntry, Codable {
     /// Shown when there is nothing to value yet. The sample figures below are for the widget gallery
     /// only and must never stand in for the user's own.
     static var empty: DepotEntry { DepotEntry(date: Date(), value: 0, cost: 0, gain: 0, day: 0, portfolios: [], movers: []) }
+
+    /// The entry as the user wants it shown now.
+    func applying(_ settings: WidgetSettings) -> DepotEntry {
+        var entry = self
+        entry.showAmounts = settings.showAmounts
+        return entry
+    }
 
     static let placeholder = DepotEntry(
         date: Date(), value: 125_480, cost: 98_000, gain: 27_480, day: 842,
@@ -44,7 +53,8 @@ struct DepotEntry: TimelineEntry, Codable {
             WidgetMover(symbol: "BBB", name: "Example Two", pct: -2.1),
             WidgetMover(symbol: "CCC", name: "Example Three", pct: 1.8),
             WidgetMover(symbol: "DDD", name: "Example Four", pct: -1.2),
-        ]
+        ],
+        showAmounts: true
     )
 }
 
@@ -68,6 +78,12 @@ enum WidgetData {
     }
 
     static func load() async -> DepotEntry? {
+        await compute()?.applying(settings)
+    }
+
+    static var settings: WidgetSettings { WidgetSettings.load(from: directory) }
+
+    private static func compute() async -> DepotEntry? {
         MarketData.configure(directory: directory)
         guard let fileData = try? Data(contentsOf: directory.appendingPathComponent("portfolios.json")),
               let file = try? JSONDecoder().decode(PortfolioFile.self, from: fileData),
@@ -119,7 +135,7 @@ struct DepotProvider: TimelineProvider {
 
     func getSnapshot(in context: Context, completion: @escaping (DepotEntry) -> Void) {
         if context.isPreview {
-            completion(WidgetData.cached ?? .placeholder)
+            completion(WidgetData.cached.map { $0.applying(WidgetData.settings) } ?? .placeholder)
             return
         }
         Task { completion(await WidgetData.load() ?? .empty) }
@@ -167,7 +183,29 @@ struct DepotWidgetView: View {
         .foregroundStyle(.secondary)
     }
 
+    @ViewBuilder
     private func headline(size: CGFloat) -> some View {
+        if entry.showAmounts { amounts(size: size) } else { percentages(size: size) }
+    }
+
+    /// Today's change and the total gain in percent: nothing that tells a bystander what you own.
+    private func percentages(size: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(Fmt.pct(entry.dayPct))
+                .font(.system(size: size, weight: .bold, design: .rounded).monospacedDigit())
+                .foregroundStyle(Color.trend(entry.day))
+                .minimumScaleFactor(0.6)
+                .lineLimit(1)
+            Text("today")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.secondary)
+            Text("\(Fmt.pct(entry.gainPct)) total gain")
+                .font(.system(size: 12, weight: .medium).monospacedDigit())
+                .foregroundStyle(Color.trend(entry.gain))
+        }
+    }
+
+    private func amounts(size: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(Fmt.money(entry.value, decimals: 0))
                 .font(.system(size: size, weight: .bold, design: .rounded).monospacedDigit())
@@ -180,6 +218,7 @@ struct DepotWidgetView: View {
                 .font(.system(size: 12, weight: .medium).monospacedDigit())
                 .foregroundStyle(Color.trend(entry.day))
         }
+        .privacySensitive()
     }
 
     private var small: some View {
@@ -215,16 +254,19 @@ struct DepotWidgetView: View {
                     headline(size: 30)
                 }
                 Spacer()
-                VStack(alignment: .trailing, spacing: 3) {
-                    Text("Total gain")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                    Text(Fmt.signedMoney(entry.gain, decimals: 0))
-                        .font(.system(size: 13, weight: .semibold).monospacedDigit())
-                    Text(Fmt.pct(entry.gainPct))
-                        .font(.system(size: 12, weight: .medium).monospacedDigit())
+                if entry.showAmounts {
+                    VStack(alignment: .trailing, spacing: 3) {
+                        Text("Total gain")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                        Text(Fmt.signedMoney(entry.gain, decimals: 0))
+                            .font(.system(size: 13, weight: .semibold).monospacedDigit())
+                            .privacySensitive()
+                        Text(Fmt.pct(entry.gainPct))
+                            .font(.system(size: 12, weight: .medium).monospacedDigit())
+                    }
+                    .foregroundStyle(Color.trend(entry.gain))
                 }
-                .foregroundStyle(Color.trend(entry.gain))
             }
             Divider()
             ForEach(entry.portfolios.prefix(4), id: \.self) { portfolioRow($0) }
@@ -258,9 +300,12 @@ struct DepotWidgetView: View {
                 .font(.system(size: 12, weight: .medium))
                 .lineLimit(1)
             Spacer(minLength: 4)
-            Text(Fmt.compactEUR(portfolio.value))
-                .font(.system(size: 12).monospacedDigit())
-                .foregroundStyle(.secondary)
+            if entry.showAmounts {
+                Text(Fmt.compactEUR(portfolio.value))
+                    .font(.system(size: 12).monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .privacySensitive()
+            }
             Text(Fmt.pct(portfolio.dayPct))
                 .font(.system(size: 12, weight: .semibold).monospacedDigit())
                 .foregroundStyle(Color.trend(portfolio.day))

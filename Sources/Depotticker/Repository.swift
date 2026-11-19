@@ -78,12 +78,34 @@ struct PortfolioRepository {
         return (portfolios ?? [], LoadProblem(skipped: portfolios == nil ? nil : skipped.count, copy: copy))
     }
 
-    func save(_ portfolios: [Portfolio]) {
-        guard let data = Self.encode(portfolios) else { return }
+    /// The iCloud key-value store holds at most 1 MB in all.
+    static let cloudLimit = 1_000_000
+
+    /// Writes the file and, in App Store builds, the iCloud copy. Returns false when the portfolios
+    /// are too large for iCloud and were kept on this device only.
+    @discardableResult
+    func save(_ portfolios: [Portfolio], toCloud: Bool = true) -> Bool {
+        guard let data = Self.encode(portfolios) else { return false }
         try? data.write(to: localURL, options: .atomic)
-        if Self.usesCloudStore {
-            NSUbiquitousKeyValueStore.default.set(data, forKey: Self.cloudKey)
+        guard Self.usesCloudStore, toCloud else { return true }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        guard let compact = try? encoder.encode(PortfolioFile(portfolios: portfolios)), compact.count < Self.cloudLimit else {
+            return false
         }
+        NSUbiquitousKeyValueStore.default.set(compact, forKey: Self.cloudKey)
+        return true
+    }
+
+    /// The copy this device and iCloud last agreed on; `CloudMerge` compares both sides with it.
+    private var syncBaseURL: URL { directory.appendingPathComponent("portfolios.synced.json") }
+
+    func loadSyncBase() -> [Portfolio]? {
+        (try? Data(contentsOf: syncBaseURL)).flatMap(Self.decode)
+    }
+
+    func saveSyncBase(_ portfolios: [Portfolio]) {
+        try? Self.encode(portfolios)?.write(to: syncBaseURL, options: .atomic)
     }
 
     /// Keeps the previous state before a bulk change such as an import.
