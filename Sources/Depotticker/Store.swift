@@ -36,6 +36,8 @@ final class Store: ObservableObject {
     @Published var showOverview = false
     /// Presents the price-source sheet. `--source-settings` opens it at launch (used when checking layouts).
     @Published var showSourceSettings = CommandLine.arguments.contains("--source-settings")
+    /// Asks the window to show the file picker for an import (from the menu or the welcome).
+    @Published var showImporter = false
     @Published var lastUpdate: Date?
     @Published var lastError: String?
     /// Set when the portfolio file could not be read at launch; stays until the app is restarted.
@@ -101,10 +103,11 @@ final class Store: ObservableObject {
         dataProblem = loaded.problem?.message
         widgetShowsAmounts = WidgetSettings.load(from: repository.directory).showAmounts
         if !MarketData.configure(directory: repository.directory), ProcessInfo.processInfo.environment["DEPOTTICKER_SOURCE"] == nil {
-            // First start of a version with selectable sources: installs that already hold positions keep
-            // the source they have been using; new installs start without one.
+            // First start: the direct download starts with Yahoo, which needs no key and covers every
+            // exchange, so an imported file shows prices at once. The App Store build has no keyless
+            // source that covers everything, so there the user chooses.
             var initial = SourceConfig()
-            if !portfolios.isEmpty, DataSource.available.contains(.yahoo) { initial.source = .yahoo }
+            if DataSource.available.contains(.yahoo) { initial.source = .yahoo }
             initial.save(to: repository.directory)
             MarketData.config = initial
         }

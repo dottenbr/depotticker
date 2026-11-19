@@ -10,6 +10,10 @@ enum Launcher {
         // `Depotticker --import file.csv` imports a CSV (own layout or a supported broker export).
         // `Depotticker --isins` looks up the ISIN of every position that has none.
         if CommandLine.arguments.contains("--isins") { CommandLineImport.resolveISINs() }
+        // `Depotticker --export file.csv` writes every portfolio in the import layout.
+        if let index = CommandLine.arguments.firstIndex(of: "--export") {
+            CommandLineImport.export(to: CommandLine.arguments.dropFirst(index + 1).first)
+        }
         if let index = CommandLine.arguments.firstIndex(of: "--import") {
             CommandLineImport.run(Array(CommandLine.arguments.dropFirst(index + 1)))
         }
@@ -83,7 +87,6 @@ struct ContentView: View {
     @State private var exportDocument: CSVDocument?
     @State private var exportName = "Depotticker"
     @State private var showExporter = false
-    @State private var showImporter = false
     @State private var pendingImport: [Portfolio]?
     @State private var importError: String?
     @State private var notice: String?
@@ -116,7 +119,7 @@ struct ContentView: View {
                       contentType: .commaSeparatedText, defaultFilename: exportName) { _ in
             exportDocument = nil
         }
-        .fileImporter(isPresented: $showImporter,
+        .fileImporter(isPresented: $store.showImporter,
                       allowedContentTypes: [.commaSeparatedText, .tabSeparatedText, .plainText]) { result in
             readImport(result)
         }
@@ -153,6 +156,8 @@ struct ContentView: View {
                 if let symbol = store.selectedSymbol, let holding = store.holding(symbol) {
                     DetailView(holding: holding)
                         .id(symbol)
+                } else if store.portfolios.allSatisfy(\.positions.isEmpty) {
+                    WelcomeView()
                 } else {
                     OverviewView()
                 }
@@ -202,7 +207,7 @@ struct ContentView: View {
                     exportDocument = CSVDocument(text: store.exportCSV())
                     showExporter = true
                 }
-                Button("Import from CSV…", systemImage: "square.and.arrow.down") { showImporter = true }
+                Button("Import from CSV…", systemImage: "square.and.arrow.down") { store.showImporter = true }
                 Button("Open Import Template", systemImage: "tablecells") { openTemplate() }
                 Menu("Estimate Missing Purchase Dates", systemImage: "calendar.badge.clock") {
                     Button("One Purchase per Position") { estimateDates(.single) }
@@ -244,7 +249,10 @@ struct ContentView: View {
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             let data = try Data(contentsOf: url)
-            pendingImport = try CSVCodec.parse(CSVCodec.text(from: data))
+            let imported = try CSVCodec.parse(CSVCodec.text(from: data))
+            pendingImport = imported
+            // With nothing there yet, the choice between adding and replacing means nothing: just import.
+            if store.portfolios.allSatisfy(\.positions.isEmpty) { finishImport(replacing: false) }
         } catch {
             importError = error.localizedDescription
         }
@@ -287,6 +295,22 @@ struct ContentView: View {
 #if os(macOS)
 /// `Depotticker --import <file.csv> [--estimate]`, or `Depotticker --import --estimate` to only estimate.
 enum CommandLineImport {
+    static func export(to path: String?) -> Never {
+        guard let path else {
+            print("Usage: Depotticker --export <file.csv>")
+            exit(2)
+        }
+        let csv = CSVCodec.export(PortfolioRepository().load(), priceEUR: { _ in nil }, rateEUR: { _ in nil })
+        do {
+            try Data(csv.utf8).write(to: URL(fileURLWithPath: path), options: .atomic)
+            print("Exported to \(path)")
+            exit(0)
+        } catch {
+            print("Export failed: \(error.localizedDescription)")
+            exit(1)
+        }
+    }
+
     static func run(_ arguments: [String]) -> Never {
         // --estimate [single|yearly] [--portfolio NAME] [--before YYYY-MM-DD]
         func value(_ flag: String) -> String? {

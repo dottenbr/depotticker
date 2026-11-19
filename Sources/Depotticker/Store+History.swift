@@ -1,4 +1,5 @@
 // Value history of the portfolios for the overview chart.
+import CryptoKit
 import Foundation
 import SwiftUI
 import WidgetKit
@@ -65,20 +66,40 @@ extension Store {
         }
     }
 
+    /// Kept so the chart shows at once on the next start. Demo and test data folders keep their own copy.
     var historiesURL: URL {
+        if let override = ProcessInfo.processInfo.environment["DEPOTTICKER_DATA"], !override.isEmpty {
+            return repository.directory.appendingPathComponent("histories.json")
+        }
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         return caches.appendingPathComponent("Depotticker-histories.json")
     }
 
+    /// The saved chart is only shown for the holdings it was computed from, so a portfolio file that
+    /// changed while the app was closed (another device, a restored backup) never shows a stale chart.
+    private struct SavedHistories: Codable {
+        var holdings: String
+        var histories: [String: [ChartPoint]]
+    }
+
+    private var holdingsFingerprint: String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        let data = (try? encoder.encode(portfolios)) ?? Data()
+        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
     func saveHistories() {
-        try? JSONEncoder().encode(histories).write(to: historiesURL, options: .atomic)
+        let saved = SavedHistories(holdings: holdingsFingerprint, histories: histories)
+        try? JSONEncoder().encode(saved).write(to: historiesURL, options: .atomic)
     }
 
     func loadSavedHistories() {
         guard let data = try? Data(contentsOf: historiesURL),
-              let saved = try? JSONDecoder().decode([String: [ChartPoint]].self, from: data)
+              let saved = try? JSONDecoder().decode(SavedHistories.self, from: data),
+              saved.holdings == holdingsFingerprint
         else { return }
-        histories = saved
+        histories = saved.histories
     }
 
     /// Holdings changed: the value histories no longer match. While the same shares are held (a
