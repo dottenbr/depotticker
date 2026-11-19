@@ -300,7 +300,12 @@ enum CommandLineImport {
             print("Usage: Depotticker --export <file.csv>")
             exit(2)
         }
-        let csv = CSVCodec.export(PortfolioRepository().load(), priceEUR: { _ in nil }, rateEUR: { _ in nil })
+        let loaded = PortfolioRepository().loadChecked()
+        if let problem = loaded.problem {
+            print("Export stopped: \(problem.message)")
+            exit(1)
+        }
+        let csv = CSVCodec.export(loaded.portfolios, priceEUR: { _ in nil }, rateEUR: { _ in nil })
         do {
             try Data(csv.utf8).write(to: URL(fileURLWithPath: path), options: .atomic)
             print("Exported to \(path)")

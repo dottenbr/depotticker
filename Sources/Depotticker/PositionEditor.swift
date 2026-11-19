@@ -10,6 +10,8 @@ struct PositionEditor: View {
     @State private var quantity: Double?
     @State private var unitCost: Double?
     @State private var portfolioID: UUID?
+    /// On a first start there is no portfolio yet; the first position creates one with this name.
+    @State private var newPortfolioName = "My Portfolio"
     @State private var currency = "EUR"
     @State private var isin = ""
     @State private var costUnknown = false
@@ -30,7 +32,7 @@ struct PositionEditor: View {
     }
 
     private var canSave: Bool {
-        guard !symbol.isEmpty, portfolioID != nil else { return false }
+        guard !symbol.isEmpty, portfolioID != nil || store.portfolios.isEmpty else { return false }
         if !trades.isEmpty { return true }
         return (quantity ?? 0) > 0 && (costUnknown || (unitCost ?? -1) >= 0)
     }
@@ -71,8 +73,12 @@ struct PositionEditor: View {
             }
 
             Form {
-                Picker("Portfolio", selection: $portfolioID) {
-                    ForEach(store.portfolios) { Text($0.name).tag(Optional($0.id)) }
+                if store.portfolios.isEmpty {
+                    TextField("New portfolio", text: $newPortfolioName)
+                } else {
+                    Picker("Portfolio", selection: $portfolioID) {
+                        ForEach(store.portfolios) { Text($0.name).tag(Optional($0.id)) }
+                    }
                 }
                 TextField("ISIN", text: $isin, prompt: Text("needed for the German exchanges' prices"))
                     .autocorrectionDisabled()
@@ -332,7 +338,12 @@ struct PositionEditor: View {
     }
 
     private func save() {
-        guard let portfolioID, canSave else { return }
+        guard canSave else { return }
+        if store.portfolios.isEmpty {
+            let name = newPortfolioName.trimmingCharacters(in: .whitespaces)
+            store.addPortfolio(named: name.isEmpty ? "My Portfolio" : name)
+        }
+        guard let portfolioID = portfolioID ?? store.portfolios.first?.id else { return }
         if let existing {
             store.update(draft, in: existing.portfolioID, movingTo: portfolioID)
         } else {
