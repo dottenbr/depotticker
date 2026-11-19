@@ -4,13 +4,13 @@
     <title>Depotticker</title>
     <link>https://depotticker.com/appcast.xml</link>
     <item>
-      <title>Version 0.5.1</title>
-      <pubDate>Thu, 19 Nov 2026 18:04:55 +0100</pubDate>
-      <sparkle:version>6</sparkle:version>
-      <sparkle:shortVersionString>0.5.1</sparkle:shortVersionString>
+      <title>Version 0.5.2</title>
+      <pubDate>Thu, 19 Nov 2026 18:44:27 +0100</pubDate>
+      <sparkle:version>7</sparkle:version>
+      <sparkle:shortVersionString>0.5.2</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
-      <sparkle:releaseNotesLink>https://github.com/dottenbr/depotticker/releases/tag/v0.5.1</sparkle:releaseNotesLink>
-      <enclosure url="https://github.com/dottenbr/depotticker/releases/download/v0.5.1/Depotticker-0.5.1.zip" type="application/octet-stream" sparkle:edSignature="m7vwbqHC6fkpcVjSg20R312XPC+3dawMiH2HkfeyLadaALkJ9S+1N+m4xpymodrllcU3StcCIsmJWPWKopEmDA==" length="2987299"/>
+      <sparkle:releaseNotesLink>https://github.com/dottenbr/depotticker/releases/tag/v0.5.2</sparkle:releaseNotesLink>
+      <enclosure url="https://github.com/dottenbr/depotticker/releases/download/v0.5.2/Depotticker-0.5.2.zip" type="application/octet-stream" sparkle:edSignature="kn0BQAGzDSDzPNaHRSpoVp0q6sSTbqeZsTrOqHSM4MtcEWUZH4Xwq/I3veqI0mvpfhIFAeK0CEyDF+HCb99ADw==" length="3003490"/>
     </item>
   </channel>
 </rss>
